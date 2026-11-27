@@ -12,6 +12,7 @@
 - Angular welcome, project list, project details, and settings screens. The details view reports “Not scanned yet”; no analysis results are fabricated.
 - Persistent theme, startup project preference, removal-confirmation, and recent-project-limit settings.
 - Temporary-directory tests for project path validation, JSON persistence, duplicate/concurrent registration, import lifecycle, unavailable folders, settings, IPC/preload validation, and theme application.
+- Renderer development startup now builds the shared workspace package automatically, including when `dev:web` is invoked directly through the desktop workspace.
 
 ### Security and scope
 

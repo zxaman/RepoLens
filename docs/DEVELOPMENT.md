@@ -20,7 +20,7 @@ npm run format
 npm run clean
 ```
 
-`npm run build` builds shared packages first, then the CLI and desktop. `npm run test` runs Vitest for Node packages and Electron IPC plus Angular's unit-test builder for renderer tests. `npm run typecheck` builds package declarations before checking consumers and the Angular templates.
+`npm run build` builds shared packages first, then the CLI and desktop. `npm run test` runs Vitest for Node packages and Electron IPC plus Angular's unit-test builder for renderer tests. `npm run typecheck` builds package declarations before checking consumers and the Angular templates. `npm run dev:web` invokes the desktop workspace's `predev:web` hook, which builds `@repolens/shared` before starting Angular. Use the npm script rather than calling `ng serve` directly from `apps/desktop` on a clean checkout.
 
 ## Formatting and validation
 

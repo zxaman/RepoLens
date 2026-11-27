@@ -9,6 +9,7 @@
     "build": "npm run build:electron && npm run build:web",
     "build:electron": "tsc -p tsconfig.electron.json && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --sourcemap --outfile=dist/electron/preload.js",
     "build:web": "ng build --configuration production",
+    "predev:web": "npm run build --workspace=@repolens/shared",
     "dev:web": "ng serve",
     "start:electron": "electron .",
     "test:web": "ng test --watch=false",
