@@ -1,0 +1,64 @@
+<section class="welcome-page">
+  <div class="welcome-hero">
+    <div class="hero-copy">
+      <p class="eyebrow">LOCAL-FIRST PROJECT WORKSPACE</p>
+      <h1>{{ projects().length > 0 ? 'Welcome back.' : 'Understand your codebase.' }}</h1>
+      <p class="hero-description">
+        Register a local folder with RepoLens. Project analysis is not available yet; your source
+        stays on this device.
+      </p>
+      <div class="hero-actions">
+        <app-project-import-button label="Import Project" />
+        <a class="button-secondary" routerLink="/projects">Open Existing Project</a>
+      </div>
+    </div>
+    <div class="hero-mark" aria-hidden="true">
+      <span class="mark-line mark-line-one"></span>
+      <span class="mark-line mark-line-two"></span>
+      <span class="mark-line mark-line-three"></span>
+      <span class="mark-node mark-node-one"></span>
+      <span class="mark-node mark-node-two"></span>
+      <span class="mark-node mark-node-three"></span>
+    </div>
+  </div>
+
+  <section class="recent-section" aria-labelledby="recent-heading">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">YOUR WORKSPACE</p>
+        <h2 id="recent-heading">Recent projects</h2>
+      </div>
+      @if (projects().length > 0) {
+        <a class="text-link" routerLink="/projects"
+          >View all projects <span aria-hidden="true">→</span></a
+        >
+      }
+    </div>
+
+    @if (loading()) {
+      <div class="panel-message" role="status">Loading registered projects…</div>
+    } @else if (error()) {
+      <div class="panel-message panel-error" role="alert">{{ error() }}</div>
+    } @else if (recentProjects().length === 0) {
+      <div class="empty-state">
+        <div class="empty-icon" aria-hidden="true">⌘</div>
+        <h3>No projects yet</h3>
+        <p>
+          Choose a local folder to add your first project. RepoLens will not modify or run its
+          files.
+        </p>
+        <app-project-import-button label="Choose a Folder" variant="secondary" />
+      </div>
+    } @else {
+      <div class="project-grid">
+        @for (project of recentProjects(); track project.id) {
+          <app-project-card
+            [project]="project"
+            [active]="project.id === activeProject()?.id"
+            [showRemove]="false"
+          />
+        }
+      </div>
+    }
+  </section>
+</section>

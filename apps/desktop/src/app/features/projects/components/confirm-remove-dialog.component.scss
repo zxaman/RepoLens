@@ -1,0 +1,85 @@
+.dialog-backdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(3 8 17 / 72%);
+}
+
+.remove-dialog {
+  width: min(100%, 32rem);
+  padding: clamp(1.35rem, 4vw, 2rem);
+  border: 1px solid var(--rl-border);
+  border-radius: 0.95rem;
+  background: var(--rl-sidebar);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 45%);
+}
+
+.dialog-eyebrow {
+  margin: 0 0 0.7rem;
+  color: var(--rl-danger);
+  font-family: var(--rl-font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+}
+
+h2 {
+  margin: 0;
+  color: var(--rl-text);
+  font-size: 1.25rem;
+}
+
+.dialog-copy {
+  color: var(--rl-secondary-text);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.project-path {
+  padding: 0.75rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.55rem;
+  color: var(--rl-secondary-text);
+  background: var(--rl-card);
+  font-family: var(--rl-font-mono);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 1.4rem;
+}
+
+button {
+  min-height: 2.4rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.55rem;
+  color: var(--rl-text);
+  background: var(--rl-card);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button-danger {
+  border-color: transparent;
+  color: #210b0c;
+  background: var(--rl-danger);
+}
+
+@media (max-width: 520px) {
+  .dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .dialog-actions button {
+    width: 100%;
+  }
+}

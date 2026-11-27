@@ -1,0 +1,41 @@
+<article class="project-card" [class.project-card-active]="active">
+  <div class="card-heading">
+    <div class="project-identity">
+      <h2>
+        <a [routerLink]="['/projects', project.id]">{{ project.name }}</a>
+      </h2>
+      <p class="project-path" [title]="project.rootPath">{{ project.rootPath }}</p>
+    </div>
+    <span class="status-badge" [class.status-unavailable]="project.status === 'unavailable'">
+      {{ project.status === 'registered' ? 'Registered' : 'Unavailable' }}
+    </span>
+  </div>
+
+  <div class="project-metadata">
+    <span class="metadata-chip">{{
+      project.repositoryType === 'git' ? 'Git repository' : 'Local folder'
+    }}</span>
+    <span>Added {{ project.createdAt | date: 'mediumDate' }}</span>
+    @if (project.lastOpenedAt) {
+      <span>Last opened {{ project.lastOpenedAt | date: 'mediumDate' }}</span>
+    } @else {
+      <span>Not opened yet</span>
+    }
+  </div>
+
+  <div class="card-footer">
+    <span class="scan-state">Not scanned yet</span>
+    <div class="card-actions">
+      <a class="button button-subtle" [routerLink]="['/projects', project.id]">Open project</a>
+      @if (showRemove) {
+        <button
+          type="button"
+          class="button button-danger-quiet"
+          (click)="removeProject.emit(project.id)"
+        >
+          Remove
+        </button>
+      }
+    </div>
+  </div>
+</article>

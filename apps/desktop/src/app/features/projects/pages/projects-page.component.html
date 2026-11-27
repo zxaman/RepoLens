@@ -1,0 +1,48 @@
+<section class="page projects-page">
+  <header class="page-heading">
+    <div>
+      <p class="eyebrow">YOUR LOCAL WORKSPACE</p>
+      <h1>Projects</h1>
+      <p class="page-description">
+        Manage folders registered with RepoLens. Your original repositories stay untouched.
+      </p>
+    </div>
+    <app-project-import-button label="Import Project" />
+  </header>
+
+  @if (error()) {
+    <div class="page-alert" role="alert">{{ error() }}</div>
+  }
+
+  @if (loading()) {
+    <div class="page-message" role="status">Loading registered projects…</div>
+  } @else if (projects().length === 0) {
+    <div class="projects-empty">
+      <div class="empty-icon" aria-hidden="true">⌂</div>
+      <h2>Your project list is empty</h2>
+      <p>
+        Import a local folder to register it. You can revisit it here after restarting RepoLens.
+      </p>
+      <app-project-import-button label="Choose a Project Folder" variant="secondary" />
+    </div>
+  } @else {
+    <div class="project-list">
+      @for (project of projects(); track project.id) {
+        <app-project-card
+          [project]="project"
+          [active]="project.id === activeProject()?.id"
+          (removeProject)="requestRemove($event)"
+        />
+      }
+    </div>
+  }
+
+  @if (projectToRemove(); as project) {
+    <app-confirm-remove-dialog
+      [project]="project"
+      [busy]="removing()"
+      (cancelled)="cancelRemove()"
+      (confirmed)="confirmRemove()"
+    />
+  }
+</section>

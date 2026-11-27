@@ -1,0 +1,88 @@
+<button
+  type="button"
+  class="import-button"
+  [class.import-button-secondary]="variant === 'secondary'"
+  [disabled]="busy()"
+  (click)="startImport()"
+>
+  {{ busy() ? 'Working…' : label }}
+</button>
+
+@if (error()) {
+  <p class="inline-error" role="alert">{{ error() }}</p>
+}
+
+@if (dialogState(); as state) {
+  <div class="dialog-backdrop" role="presentation">
+    <section class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      @if (state.kind === 'selected') {
+        <p class="dialog-eyebrow">PROJECT REGISTRATION</p>
+        <h2 id="import-title">Add this folder?</h2>
+        <p class="dialog-description">
+          RepoLens will save a registration in its application data. It will not modify or execute
+          files in the selected folder.
+        </p>
+        <dl class="project-preview">
+          <div>
+            <dt>Project name</dt>
+            <dd>{{ state.preview.name }}</dd>
+          </div>
+          <div>
+            <dt>Location</dt>
+            <dd class="path-value">{{ state.preview.rootPath }}</dd>
+          </div>
+          <div>
+            <dt>Repository</dt>
+            <dd>
+              {{ state.preview.repositoryType === 'git' ? 'Git repository' : 'Local folder' }}
+            </dd>
+          </div>
+          <div>
+            <dt>Detected folder markers</dt>
+            <dd>
+              @if (state.preview.repositoryIndicators.length > 0) {
+                <span class="indicator-list">{{
+                  state.preview.repositoryIndicators.join(', ')
+                }}</span>
+              } @else {
+                <span>No common markers found; this folder can still be registered.</span>
+              }
+            </dd>
+          </div>
+        </dl>
+        @if (error()) {
+          <p class="inline-error" role="alert">{{ error() }}</p>
+        }
+        <div class="dialog-actions">
+          <button type="button" class="button-quiet" [disabled]="busy()" (click)="cancelImport()">
+            Cancel
+          </button>
+          <button type="button" class="button-primary" [disabled]="busy()" (click)="addProject()">
+            {{ busy() ? 'Adding…' : 'Add Project' }}
+          </button>
+        </div>
+      } @else if (state.kind === 'duplicate') {
+        <p class="dialog-eyebrow">ALREADY REGISTERED</p>
+        <h2 id="import-title">This project is already in RepoLens</h2>
+        <p class="dialog-description">{{ state.project.name }} is registered at:</p>
+        <p class="path-value duplicate-path">{{ state.project.rootPath }}</p>
+        @if (error()) {
+          <p class="inline-error" role="alert">{{ error() }}</p>
+        }
+        <div class="dialog-actions">
+          <button type="button" class="button-quiet" [disabled]="busy()" (click)="closeDialog()">
+            Close
+          </button>
+          <button
+            type="button"
+            class="button-primary"
+            [disabled]="busy()"
+            (click)="openDuplicate()"
+          >
+            Open Existing Project
+          </button>
+        </div>
+      }
+    </section>
+  </div>
+}

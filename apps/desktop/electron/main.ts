@@ -1,6 +1,10 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
 import { join } from 'node:path';
 import { registerIpcHandlers } from './ipc/register-ipc.js';
+import { AppSettingsService } from './services/app-settings.service.js';
+import { JsonProjectRepository } from './services/json-project-repository.js';
+import { JsonSettingsRepository } from './services/json-settings-repository.js';
+import { ProjectManagementService } from './services/project-management.service.js';
 import { buildContentSecurityPolicy } from './security/content-security-policy.js';
 import {
   assertTrustedIpcInvocation,
@@ -105,6 +109,15 @@ async function createMainWindow(target: RendererTarget): Promise<void> {
   }
 }
 
+async function pickProjectDirectory(): Promise<string | null> {
+  const options = { properties: ['openDirectory'] as const };
+  const result =
+    activeWindow === null
+      ? await dialog.showOpenDialog({ properties: [...options.properties] })
+      : await dialog.showOpenDialog(activeWindow, { properties: [...options.properties] });
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -120,15 +133,30 @@ void app
       version: app.getVersion(),
       platform: process.platform,
     });
+    const userDataDirectory = app.getPath('userData');
+    const projectRepository = new JsonProjectRepository(
+      join(userDataDirectory, 'project-registry.json'),
+    );
+    const settingsRepository = new JsonSettingsRepository(join(userDataDirectory, 'settings.json'));
+    const settingsService = new AppSettingsService(settingsRepository, projectRepository);
+    const projectService = new ProjectManagementService(projectRepository, settingsService, {
+      pickDirectory: pickProjectDirectory,
+    });
 
     installContentSecurityPolicy(rendererTarget.developmentUrl !== null);
-    registerIpcHandlers(ipcMain, appInfo, (event) => {
-      assertTrustedIpcInvocation(
-        event.senderFrame?.url ?? null,
-        event.sender.mainFrame?.url ?? null,
-        rendererTarget.trustPolicy,
-      );
-    });
+    registerIpcHandlers(
+      ipcMain,
+      appInfo,
+      (event) => {
+        assertTrustedIpcInvocation(
+          event.senderFrame?.url ?? null,
+          event.sender.mainFrame?.url ?? null,
+          rendererTarget.trustPolicy,
+        );
+      },
+      projectService,
+      settingsService,
+    );
 
     await createMainWindow(rendererTarget);
 
