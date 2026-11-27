@@ -1,0 +1,227 @@
+.welcome-page {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+  padding: clamp(1.2rem, 4vw, 2.5rem) 0 3rem;
+}
+
+.welcome-hero {
+  min-height: 18rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3rem;
+  padding: clamp(1.6rem, 5vw, 3.2rem);
+  border: 1px solid var(--rl-border);
+  border-radius: 1.1rem;
+  background: linear-gradient(
+    110deg,
+    var(--rl-card),
+    color-mix(in srgb, var(--rl-primary) 6%, var(--rl-sidebar))
+  );
+}
+
+.hero-copy {
+  max-width: 42rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  color: var(--rl-primary);
+  font-family: var(--rl-font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.13em;
+}
+
+h1 {
+  margin: 0;
+  color: var(--rl-text);
+  font-size: clamp(2.1rem, 6vw, 3.6rem);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+  line-height: 1.05;
+}
+
+.hero-description {
+  max-width: 37rem;
+  margin: 1rem 0 0;
+  color: var(--rl-secondary-text);
+  font-size: 0.97rem;
+  line-height: 1.7;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.6rem;
+}
+
+.button-secondary {
+  min-height: 2.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.62rem 1rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.6rem;
+  color: var(--rl-text);
+  background: var(--rl-sidebar);
+  font-size: 0.86rem;
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.button-secondary:hover {
+  border-color: var(--rl-primary);
+}
+
+.hero-mark {
+  position: relative;
+  width: 9rem;
+  height: 9rem;
+  flex: 0 0 9rem;
+  border: 1px solid color-mix(in srgb, var(--rl-primary) 32%, transparent);
+  border-radius: 2.2rem;
+  background: color-mix(in srgb, var(--rl-primary) 8%, transparent);
+  transform: rotate(-8deg);
+}
+
+.mark-line {
+  position: absolute;
+  left: 2.1rem;
+  width: 4.8rem;
+  height: 0.35rem;
+  border-radius: 1rem;
+  background: var(--rl-primary);
+}
+
+.mark-line-one {
+  top: 2.3rem;
+}
+.mark-line-two {
+  top: 4.2rem;
+  width: 3.5rem;
+}
+.mark-line-three {
+  top: 6.1rem;
+}
+
+.mark-node {
+  position: absolute;
+  right: 1.2rem;
+  width: 1rem;
+  height: 1rem;
+  border: 0.2rem solid var(--rl-sidebar);
+  border-radius: 50%;
+  background: var(--rl-success);
+}
+
+.mark-node-one {
+  top: 2rem;
+}
+.mark-node-two {
+  top: 4rem;
+  right: 2.1rem;
+  background: var(--rl-primary);
+}
+.mark-node-three {
+  top: 6rem;
+}
+
+.recent-section {
+  margin-top: 2.6rem;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.section-heading .eyebrow {
+  margin-bottom: 0.35rem;
+}
+
+.section-heading h2 {
+  margin: 0;
+  color: var(--rl-text);
+  font-size: 1.15rem;
+  font-weight: 620;
+}
+
+.text-link {
+  color: var(--rl-primary);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.text-link:hover {
+  text-decoration: underline;
+}
+
+.project-grid {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.panel-message,
+.empty-state {
+  padding: 2rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.85rem;
+  background: var(--rl-card);
+}
+
+.panel-message {
+  color: var(--rl-secondary-text);
+  font-size: 0.86rem;
+}
+
+.panel-error {
+  color: var(--rl-danger);
+}
+
+.empty-state {
+  display: grid;
+  justify-items: center;
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+
+.empty-icon {
+  width: 2.8rem;
+  height: 2.8rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--rl-primary) 35%, transparent);
+  border-radius: 0.8rem;
+  color: var(--rl-primary);
+  background: color-mix(in srgb, var(--rl-primary) 8%, transparent);
+  font-size: 1.2rem;
+}
+
+.empty-state h3 {
+  margin: 1rem 0 0;
+  color: var(--rl-text);
+  font-size: 1rem;
+}
+
+.empty-state p {
+  max-width: 28rem;
+  margin: 0.5rem 0 1.1rem;
+  color: var(--rl-secondary-text);
+  font-size: 0.83rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 700px) {
+  .welcome-hero {
+    min-height: unset;
+  }
+  .hero-mark {
+    display: none;
+  }
+}

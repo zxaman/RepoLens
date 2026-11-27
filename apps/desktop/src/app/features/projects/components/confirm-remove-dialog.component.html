@@ -1,0 +1,19 @@
+<div class="dialog-backdrop" role="presentation">
+  <section class="remove-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-title">
+    <p class="dialog-eyebrow">REMOVE REGISTRATION</p>
+    <h2 id="remove-title">Remove {{ project.name }} from RepoLens?</h2>
+    <p class="dialog-copy">
+      This removes the project entry from RepoLens only. The folder and all files inside it will be
+      left untouched.
+    </p>
+    <p class="project-path">{{ project.rootPath }}</p>
+    <div class="dialog-actions">
+      <button type="button" class="button-quiet" [disabled]="busy" (click)="cancelled.emit()">
+        Keep Project
+      </button>
+      <button type="button" class="button-danger" [disabled]="busy" (click)="confirmed.emit()">
+        {{ busy ? 'Removing…' : 'Remove Registration' }}
+      </button>
+    </div>
+  </section>
+</div>

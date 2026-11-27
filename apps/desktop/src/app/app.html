@@ -1,36 +1,35 @@
-<main class="welcome" aria-labelledby="welcome-title">
-  <section class="welcome-card">
-    <div class="brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 48 48" role="presentation">
-        <path d="M8 11h20v6H8zM8 21h13v6H8zM8 31h20v6H8z" />
-        <circle cx="35" cy="14" r="5" />
-        <circle cx="29" cy="24" r="4" />
-        <circle cx="36" cy="34" r="5" />
-        <path d="m32.5 18-2 3m1 7 2 2" />
-      </svg>
+<div class="app-shell">
+  <header class="app-header">
+    <a class="brand" routerLink="/welcome" aria-label="RepoLens home">
+      <span class="brand-symbol" aria-hidden="true">R</span>
+      <span class="brand-name">RepoLens</span>
+    </a>
+
+    <nav class="primary-navigation" aria-label="Main navigation">
+      <a
+        routerLink="/welcome"
+        routerLinkActive="navigation-active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        >Welcome</a
+      >
+      <a routerLink="/projects" routerLinkActive="navigation-active">Projects</a>
+    </nav>
+
+    <div class="header-context">
+      @if (activeProject(); as current) {
+        <div class="active-project" [title]="current.rootPath">
+          <span class="active-project-label">CURRENT PROJECT</span>
+          <span class="active-project-name">{{ current.name }}</span>
+        </div>
+      }
+      <a class="settings-link" routerLink="/settings" routerLinkActive="navigation-active">
+        <span aria-hidden="true">⚙</span><span>Settings</span>
+      </a>
+      <span class="app-version">v{{ appVersion() }}</span>
     </div>
+  </header>
 
-    <p class="eyebrow">LOCAL-FIRST CODEBASE INTELLIGENCE</p>
-    <h1 id="welcome-title">RepoLens</h1>
-    <p class="tagline">Analyze once. Understand anywhere.</p>
-    <p class="description">
-      A private, portable way to make sense of unfamiliar codebases. The foundation is in place;
-      repository analysis arrives in later milestones.
-    </p>
-
-    <div class="status-panel" role="status" aria-live="polite">
-      <span class="status-indicator" aria-hidden="true"></span>
-      <div>
-        <p class="status-title">Foundation initialized</p>
-        <p class="status-detail">{{ bridgeStatus() }}</p>
-      </div>
-    </div>
-
-    <footer class="welcome-footer">
-      <span>Desktop foundation</span>
-      <span class="app-version">Version {{ appVersion() }}</span>
-    </footer>
-  </section>
-
-  <router-outlet />
-</main>
+  <main class="app-content">
+    <router-outlet />
+  </main>
+</div>

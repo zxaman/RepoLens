@@ -1,9 +1,11 @@
 import {
   appErrorSchema,
   appSettingsSchema,
+  projectImportCommitResultSchema,
+  projectImportResultSchema,
   projectSchema,
   scanSummarySchema,
-  type Project,
+  type AppSettings,
   type RepoLensAPI,
   type Result,
   type ScanSummary,
@@ -12,13 +14,15 @@ import { z } from 'zod';
 import { IPC_CHANNELS, type IpcChannel } from '../security/ipc-channels.js';
 
 export interface IpcInvoker {
-  invoke(channel: IpcChannel): Promise<unknown>;
+  invoke(channel: IpcChannel, payload?: object): Promise<unknown>;
 }
 
 const versionSchema = z.string().min(1);
 const platformSchema = z.string().min(1);
-const projectsSchema: z.ZodType<readonly Project[]> = z.array(projectSchema).readonly();
-const scanStatusSchema: z.ZodType<ScanSummary | null> = scanSummarySchema.nullable();
+const projectListSchema = z.array(projectSchema).readonly();
+const projectNullableSchema = projectSchema.nullable();
+const projectRemovalSchema = z.object({ removed: z.literal(true) }).strict();
+const cancelledImportSchema = z.object({ cancelled: z.literal(true) }).strict();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -57,8 +61,11 @@ function invokeResult<T>(
   invoker: IpcInvoker,
   channel: IpcChannel,
   dataSchema: z.ZodType<T>,
+  payload?: object,
 ): Promise<Result<T>> {
-  return invoker.invoke(channel).then((response) => parseResult(response, dataSchema));
+  const response =
+    payload === undefined ? invoker.invoke(channel) : invoker.invoke(channel, payload);
+  return response.then((value) => parseResult(value, dataSchema));
 }
 
 export function createRepoLensAPI(invoker: IpcInvoker): RepoLensAPI {
@@ -68,13 +75,36 @@ export function createRepoLensAPI(invoker: IpcInvoker): RepoLensAPI {
       getPlatform: () => invokeValidated(invoker, IPC_CHANNELS.appGetPlatform, platformSchema),
     }),
     projects: Object.freeze({
-      list: () => invokeResult(invoker, IPC_CHANNELS.projectsList, projectsSchema),
+      importFolder: () =>
+        invokeResult(invoker, IPC_CHANNELS.projectsImportFolder, projectImportResultSchema),
+      confirmImport: (selectionId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.projectsConfirmImport, projectImportCommitResultSchema, {
+          selectionId,
+        }),
+      cancelImport: (selectionId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.projectsCancelImport, cancelledImportSchema, {
+          selectionId,
+        }),
+      list: () => invokeResult(invoker, IPC_CHANNELS.projectsList, projectListSchema),
+      getById: (id: string) =>
+        invokeResult(invoker, IPC_CHANNELS.projectsGetById, projectNullableSchema, { id }),
+      getActive: () => invokeResult(invoker, IPC_CHANNELS.projectsGetActive, projectNullableSchema),
+      setActive: (id: string) =>
+        invokeResult(invoker, IPC_CHANNELS.projectsSetActive, projectSchema, { id }),
+      remove: (id: string) =>
+        invokeResult(invoker, IPC_CHANNELS.projectsRemove, projectRemovalSchema, { id }),
+      refresh: (id: string) =>
+        invokeResult(invoker, IPC_CHANNELS.projectsRefresh, projectSchema, { id }),
     }),
     scans: Object.freeze({
-      getStatus: () => invokeResult(invoker, IPC_CHANNELS.scansGetStatus, scanStatusSchema),
+      getStatus: (): Promise<Result<ScanSummary | null>> =>
+        invokeResult(invoker, IPC_CHANNELS.scansGetStatus, scanSummarySchema.nullable()),
     }),
     settings: Object.freeze({
       get: () => invokeResult(invoker, IPC_CHANNELS.settingsGet, appSettingsSchema),
+      update: (settings: AppSettings) =>
+        invokeResult(invoker, IPC_CHANNELS.settingsUpdate, appSettingsSchema, settings),
+      reset: () => invokeResult(invoker, IPC_CHANNELS.settingsReset, appSettingsSchema),
     }),
   });
 }

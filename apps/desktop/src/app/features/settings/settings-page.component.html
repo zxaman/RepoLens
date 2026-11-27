@@ -1,0 +1,117 @@
+<section class="page settings-page">
+  <header class="page-heading">
+    <p class="eyebrow">APPLICATION</p>
+    <h1>Settings</h1>
+    <p class="page-description">Preferences are stored locally in RepoLens application data.</p>
+  </header>
+
+  @if (loading()) {
+    <div class="page-message" role="status">Loading settings…</div>
+  } @else if (error() && !settingsLoaded()) {
+    <div class="page-alert" role="alert">{{ error() }}</div>
+  } @else {
+    @if (error()) {
+      <div class="page-alert" role="alert">{{ error() }}</div>
+    }
+    @if (savedMessage()) {
+      <div class="page-success" role="status">{{ savedMessage() }}</div>
+    }
+
+    <form class="settings-form" (ngSubmit)="save()">
+      <section class="settings-card" aria-labelledby="appearance-heading">
+        <div class="setting-copy">
+          <h2 id="appearance-heading">Appearance</h2>
+          <p>Choose how RepoLens looks on this device.</p>
+        </div>
+        <label class="setting-control" for="theme-select">
+          <span class="visually-hidden">Theme</span>
+          <select
+            id="theme-select"
+            name="theme"
+            [ngModel]="settings().theme"
+            (ngModelChange)="updateTheme($event)"
+          >
+            <option value="system">System</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="settings-card" aria-labelledby="default-project-heading">
+        <div class="setting-copy">
+          <h2 id="default-project-heading">Default project</h2>
+          <p>
+            Select this project as the current project when RepoLens starts. It will not be scanned
+            automatically.
+          </p>
+        </div>
+        <label class="setting-control" for="default-project-select">
+          <span class="visually-hidden">Default project</span>
+          <select
+            id="default-project-select"
+            name="defaultProjectId"
+            [ngModel]="settings().defaultProjectId ?? ''"
+            (ngModelChange)="updateDefaultProject($event)"
+          >
+            <option value="">No default project</option>
+            @for (project of projects(); track project.id) {
+              <option [value]="project.id" [disabled]="project.status === 'unavailable'">
+                {{ project.name }}{{ project.status === 'unavailable' ? ' (unavailable)' : '' }}
+              </option>
+            }
+          </select>
+        </label>
+      </section>
+
+      <section class="settings-card" aria-labelledby="project-management-heading">
+        <div class="setting-copy">
+          <h2 id="project-management-heading">Project management</h2>
+          <p>
+            Confirm before removing a project's RepoLens registration. The original folder is never
+            deleted.
+          </p>
+        </div>
+        <label class="toggle-control">
+          <input
+            type="checkbox"
+            name="confirmBeforeRemovingProject"
+            [ngModel]="settings().confirmBeforeRemovingProject"
+            (ngModelChange)="updateConfirmBeforeRemoving($event)"
+          />
+          <span>Ask before removing</span>
+        </label>
+      </section>
+
+      <section class="settings-card" aria-labelledby="recent-projects-heading">
+        <div class="setting-copy">
+          <h2 id="recent-projects-heading">Recent projects</h2>
+          <p>Maximum number of projects shown on the welcome screen.</p>
+        </div>
+        <label class="setting-control limit-control" for="recent-limit">
+          <span class="visually-hidden">Recent projects limit</span>
+          <input
+            id="recent-limit"
+            type="number"
+            min="1"
+            max="50"
+            step="1"
+            name="recentProjectsLimit"
+            [ngModel]="settings().recentProjectsLimit"
+            (ngModelChange)="updateRecentLimit($event)"
+          />
+          <span>projects</span>
+        </label>
+      </section>
+
+      <footer class="form-actions">
+        <button type="button" class="button-secondary" [disabled]="saving()" (click)="reset()">
+          Reset defaults
+        </button>
+        <button type="submit" class="button-primary" [disabled]="saving()">
+          {{ saving() ? 'Saving…' : 'Save Settings' }}
+        </button>
+      </footer>
+    </form>
+  }
+</section>

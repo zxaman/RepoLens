@@ -1,73 +1,77 @@
 # RepoLens
 
-**Analyze once. Understand anywhere.**
+**Understand your codebase.**
 
-RepoLens is an open-source, local-first codebase intelligence platform in early development. Its intended product combines an Electron desktop application, a standalone CLI, a reusable analysis engine, and portable analysis bundles. The current **v0.1.0 Foundation** establishes the workspace, package contracts, development tooling, a minimal Angular welcome screen, and a restricted Electron preload bridge. It does **not** analyze repositories yet.
+RepoLens is an open-source, local-first desktop project in active development. The current **v0.2.0 — Project Management** milestone lets you register local folders, revisit them, and save application preferences. It does **not** scan or analyze repository contents yet.
 
-## Product principles
+## v0.2.0 capabilities
 
-- Repository analysis should happen locally by default.
-- Core functionality should not require AI, cloud accounts, paid keys, or an external backend.
-- The CLI and desktop app will share the same framework-independent analysis packages.
-- Exported analysis should be portable and should omit source code unless a user explicitly opts in.
-- Imported repositories and analysis bundles will be treated as untrusted input.
+- Import a local folder with Electron's native folder picker, review its details, then confirm registration.
+- Register ordinary folders whether or not they contain Git metadata or a package manifest. A small allowlist of top-level markers is optional metadata only; RepoLens does not read their contents.
+- Normalize canonical paths, detect duplicate registrations (including symlink aliases and Windows path casing), and preserve registrations whose folders are temporarily unavailable.
+- List, activate, refresh basic folder metadata, and remove project registrations. Removing a registration never removes or edits the original folder.
+- Persist the versioned project registry and application settings separately under Electron's `userData` directory. Settings include theme, startup project preference, removal confirmation, and the welcome-screen recent-project limit.
+- Keep the renderer browser-only. Angular talks to the Electron main process only through the typed, runtime-validated `window.repolens` preload API.
 
-## Current components
+**No recursive scan or analysis is performed in v0.2.0.** Project details truthfully show “Not scanned yet.” RepoLens does not execute project scripts, install dependencies, initialize Git, modify repository files, upload source, or expose arbitrary paths or shell commands. Treat imported folders as untrusted.
 
-- **Desktop renderer:** existing Angular 21 application, migrated to `apps/desktop` and prepared for Electron.
-- **Electron shell:** main process and a context-isolated preload bridge; only application information is currently functional.
-- **CLI:** Commander-based executable foundation with working `--version` and `--help` options.
-- **Workspace packages:** typed foundations for shared contracts, core analysis, language support, SQLite/Drizzle access, exports, and optional AI.
+## Architecture
 
-## Technology foundation
+- **Desktop renderer:** Angular 21 standalone application in `apps/desktop/src`; it has no Node.js filesystem or Electron APIs.
+- **Electron main/preload:** the main process owns the native folder picker, validation, IPC, and local persistence. The sandboxed preload exposes only approved typed methods.
+- **Shared contracts:** `packages/shared` defines Zod-validated project, import, settings, and result contracts shared across the IPC boundary.
+- **Persistence:** a repository abstraction currently uses a version-1 JSON registry and a separate JSON settings file, with atomic replacement and malformed-file quarantine. SQLite/Drizzle persistence and migration are future work.
+- **Other workspaces:** the CLI is still an executable foundation (`--version` / `--help`); core analysis, language support, database, export, and optional AI packages remain foundations rather than working scanner features.
 
-- Angular 21 and TypeScript 5.9, with standalone components and strict template checking.
-- Electron with `contextIsolation`, `sandbox`, and `nodeIntegration: false`.
-- npm workspaces, TypeScript project builds, ESLint, Prettier, and Vitest.
-- Zod for shared runtime contracts; Drizzle ORM types prepared for the later SQLite milestone.
+See [Architecture](docs/ARCHITECTURE.md), [Project Management](docs/PROJECT_MANAGEMENT.md), and [IPC architecture](docs/IPC_ARCHITECTURE.md) for details.
 
-Angular Material and Tailwind are intentionally not installed in this foundation milestone; there is no dashboard to style yet. No separate backend server is included.
+## Technology and requirements
 
-## Requirements
+- Node.js `>=22.12.0` (verified with Node 22.22.3) and npm 10 or newer (verified with npm 10.9.8).
+- Angular 21, TypeScript 5.9, Electron, npm workspaces, Zod, Vitest, ESLint, and Prettier.
+- Electron runs with context isolation, sandboxing, `nodeIntegration: false`, a restrictive Content Security Policy, sender validation, and an allowlisted IPC surface.
 
-- Node.js `>=22.12.0` (tested with Node 22.22.3).
-- npm 10 or newer (tested with npm 10.9.8).
-
-## Development commands
+## Development
 
 ```bash
-npm install
+npm ci
 npm run build
-npm run test
-npm run lint
 npm run typecheck
-npm run format
+npm test
+npm run lint
+npm run format:check
 
-# Angular renderer in a browser for UI development
+# Browser-only renderer development; project/settings APIs need Electron
 npm run dev:web
 
-# Angular renderer plus Electron shell (requires a graphical desktop session)
+# Desktop app with the Angular dev server (requires Electron's native binary and a display)
 npm run dev:desktop
 
-# After building the CLI
+# CLI foundation; no project scanning command is implemented
 npm run cli -- --version
 npm run cli -- --help
 ```
 
-The Electron application loads the built Angular renderer from `file://` unless the local development runner explicitly supplies the Angular dev-server URL. `window.repolens` is exposed only by the preload bridge; a browser-only run reports that Electron is not connected.
+`npm run build` builds the workspace packages, CLI, Electron TypeScript/preload bundle, and production Angular renderer. Running the Electron GUI additionally requires the native Electron binary and a graphical session.
+
+## Data and privacy
+
+All project registrations and settings stay in the application's local `userData` directory (`project-registry.json` and `settings.json`). The import flow resolves the selected directory, checks that it is an accessible directory outside filesystem roots and known system locations, and inspects only direct directory entries for optional markers. It does not traverse the folder tree or read source files. Project removal deletes only RepoLens metadata.
 
 ## Project status
 
-The project is under active development. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for verified tasks, build/test state, limitations, and the next milestone. Repository scanning, AST parsing, dependency analysis, dashboards, persistence, export bundles, the offline viewer, and AI providers are planned—not implemented—in this release.
+See [PROJECT_STATUS.md](PROJECT_STATUS.md) for verification results, known environment limitations, and the next milestone. The Electron GUI has not been launched in this sandbox because its native binary could not be downloaded and no display server is available; do not interpret successful compilation as a GUI launch test.
 
 ## Documentation
 
+- [Project management](docs/PROJECT_MANAGEMENT.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [IPC and Electron security](docs/IPC_ARCHITECTURE.md)
 - [Installation](docs/INSTALLATION.md)
 - [Development guide](docs/DEVELOPMENT.md)
-- [IPC and Electron security](docs/IPC_ARCHITECTURE.md)
 - [Package structure](docs/PACKAGE_STRUCTURE.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Security policy](docs/SECURITY.md)
 
 ## License
 

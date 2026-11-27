@@ -1,6 +1,6 @@
 # Security policy
 
-RepoLens is in early development. The Electron boundary and local-first behavior are being established before repository analysis is added.
+RepoLens is in early development. The Electron boundary and local-first behavior are established before recursive repository analysis is added.
 
 ## Reporting a vulnerability
 
@@ -9,9 +9,11 @@ Please do not publish sensitive vulnerability details in a public issue. Use Git
 ## Current security controls
 
 - Electron uses context isolation, a sandboxed preload, and `nodeIntegration: false`.
-- The renderer receives a narrow API; raw `ipcRenderer`, filesystem access, and shell commands are not exposed.
-- Main-process IPC channels are explicitly allowlisted, payloads are validated, and sender origins/frames are checked.
+- The renderer receives a narrow typed API; raw `ipcRenderer`, filesystem access, arbitrary paths, and shell commands are not exposed.
+- Main-process IPC channels are explicitly allowlisted, payloads and responses are runtime-validated, and sender frames are checked.
 - Renderer navigation and new windows are restricted; a restrictive Content Security Policy is installed.
-- No project scripts, dependency installation, source uploads, AI calls, or external service calls are performed by this foundation.
+- Project import uses Electron's native folder picker. Electron resolves symlinks, rejects filesystem roots and known system locations, checks directory access, and inspects only an allowlist of direct-entry marker names. Marker contents are not read.
+- Project registrations and settings are persisted under Electron's local `userData` directory. Removing a registration does not delete or modify the imported folder.
+- No project scripts are executed, dependencies installed, repository contents recursively scanned, source uploaded, or external service/AI calls performed in v0.2.0.
 
-These controls are not a security audit or a guarantee of safety. Future import, archive, scanning, database, and export functionality must treat its inputs as untrusted and receive dedicated review and tests.
+These controls are not a security audit or a guarantee of safety. Future scanning, archive import, SQLite persistence, and export functionality must treat their inputs as untrusted and receive dedicated review and tests.

@@ -1,0 +1,240 @@
+.page {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+  padding: clamp(1.2rem, 4vw, 2.5rem) 0 3rem;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 1.4rem;
+  color: var(--rl-secondary-text);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  color: var(--rl-primary);
+}
+
+.project-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.2rem;
+  margin-bottom: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.55rem;
+  color: var(--rl-primary);
+  font-family: var(--rl-font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.13em;
+}
+
+h1 {
+  margin: 0;
+  color: var(--rl-text);
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+}
+
+.project-path,
+.path-value,
+.indicator-list {
+  color: var(--rl-secondary-text);
+  font-family: var(--rl-font-mono);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.project-path {
+  margin: 0.55rem 0 0;
+}
+
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+button,
+.button-secondary {
+  min-height: 2.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.55rem;
+  color: var(--rl-text);
+  background: var(--rl-card);
+  font: inherit;
+  font-size: 0.78rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button-secondary:hover {
+  border-color: var(--rl-primary);
+}
+
+.button-danger-quiet {
+  color: var(--rl-danger);
+}
+
+.button-danger-quiet:hover {
+  background: color-mix(in srgb, var(--rl-danger) 10%, transparent);
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(15rem, 0.8fr);
+  gap: 0.9rem;
+}
+
+.overview-card {
+  padding: 1.25rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.85rem;
+  background: var(--rl-card);
+}
+
+.card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.card-heading .eyebrow {
+  margin-bottom: 0.4rem;
+}
+
+h2 {
+  margin: 0;
+  color: var(--rl-text);
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+.status-badge {
+  flex: 0 0 auto;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 999px;
+  color: var(--rl-success);
+  background: color-mix(in srgb, var(--rl-success) 8%, transparent);
+  font-size: 0.7rem;
+}
+
+.status-unavailable {
+  color: var(--rl-warning);
+}
+
+.detail-list {
+  display: grid;
+  gap: 0;
+  margin: 1.2rem 0 0;
+}
+
+.detail-list div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.65fr) minmax(0, 1.35fr);
+  gap: 0.75rem;
+  padding: 0.72rem 0;
+  border-top: 1px solid var(--rl-border);
+}
+
+.detail-list dt {
+  color: var(--rl-secondary-text);
+  font-size: 0.76rem;
+}
+
+.detail-list dd {
+  margin: 0;
+  color: var(--rl-text);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.availability-warning,
+.page-alert,
+.page-message {
+  display: flex;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--rl-warning) 40%, var(--rl-border));
+  border-radius: 0.65rem;
+  color: var(--rl-warning);
+  background: color-mix(in srgb, var(--rl-warning) 6%, var(--rl-card));
+  font-size: 0.82rem;
+}
+
+.page-alert {
+  color: var(--rl-danger);
+  border-color: var(--rl-border);
+}
+.page-message {
+  color: var(--rl-secondary-text);
+  border-color: var(--rl-border);
+}
+
+.scan-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.scan-card .eyebrow {
+  margin-bottom: 0.4rem;
+}
+
+.scan-status {
+  margin: 1.2rem 0 0;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 999px;
+  color: var(--rl-secondary-text);
+  font-size: 0.75rem;
+}
+
+.scan-description {
+  margin: 0.8rem 0 0;
+  color: var(--rl-secondary-text);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.not-found {
+  max-width: 38rem;
+  padding: 2rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.9rem;
+  background: var(--rl-card);
+}
+
+.not-found p:not(.eyebrow) {
+  color: var(--rl-secondary-text);
+  line-height: 1.6;
+}
+
+@media (max-width: 780px) {
+  .project-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 500px) {
+  .detail-list div {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+}
