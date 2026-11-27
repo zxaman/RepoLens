@@ -1,0 +1,37 @@
+{
+  "name": "@repolens/desktop",
+  "version": "0.1.0",
+  "productName": "RepoLens",
+  "private": true,
+  "type": "commonjs",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "build": "npm run build:electron && npm run build:web",
+    "build:electron": "tsc -p tsconfig.electron.json && esbuild electron/preload.ts --bundle --platform=node --format=cjs --external:electron --sourcemap --outfile=dist/electron/preload.js",
+    "build:web": "ng build --configuration production",
+    "dev:web": "ng serve",
+    "start:electron": "electron .",
+    "test:web": "ng test --watch=false",
+    "typecheck:electron": "tsc --noEmit -p tsconfig.electron.json",
+    "typecheck:web": "ng build --configuration development"
+  },
+  "dependencies": {
+    "@angular/common": "^21.2.0",
+    "@angular/compiler": "^21.2.0",
+    "@angular/core": "^21.2.0",
+    "@angular/forms": "^21.2.0",
+    "@angular/platform-browser": "^21.2.0",
+    "@angular/router": "^21.2.0",
+    "@repolens/shared": "0.1.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@angular/build": "^21.2.11",
+    "@angular/cli": "^21.2.11",
+    "@angular/compiler-cli": "^21.2.0",
+    "electron": "^45.5.0",
+    "esbuild": "^0.28.2"
+  }
+}

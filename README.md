@@ -1,59 +1,74 @@
 # RepoLens
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.11.
+**Analyze once. Understand anywhere.**
 
-## Development server
+RepoLens is an open-source, local-first codebase intelligence platform in early development. Its intended product combines an Electron desktop application, a standalone CLI, a reusable analysis engine, and portable analysis bundles. The current **v0.1.0 Foundation** establishes the workspace, package contracts, development tooling, a minimal Angular welcome screen, and a restricted Electron preload bridge. It does **not** analyze repositories yet.
 
-To start a local development server, run:
+## Product principles
 
-```bash
-ng serve
-```
+- Repository analysis should happen locally by default.
+- Core functionality should not require AI, cloud accounts, paid keys, or an external backend.
+- The CLI and desktop app will share the same framework-independent analysis packages.
+- Exported analysis should be portable and should omit source code unless a user explicitly opts in.
+- Imported repositories and analysis bundles will be treated as untrusted input.
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+## Current components
 
-## Code scaffolding
+- **Desktop renderer:** existing Angular 21 application, migrated to `apps/desktop` and prepared for Electron.
+- **Electron shell:** main process and a context-isolated preload bridge; only application information is currently functional.
+- **CLI:** Commander-based executable foundation with working `--version` and `--help` options.
+- **Workspace packages:** typed foundations for shared contracts, core analysis, language support, SQLite/Drizzle access, exports, and optional AI.
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Technology foundation
 
-```bash
-ng generate component component-name
-```
+- Angular 21 and TypeScript 5.9, with standalone components and strict template checking.
+- Electron with `contextIsolation`, `sandbox`, and `nodeIntegration: false`.
+- npm workspaces, TypeScript project builds, ESLint, Prettier, and Vitest.
+- Zod for shared runtime contracts; Drizzle ORM types prepared for the later SQLite milestone.
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Angular Material and Tailwind are intentionally not installed in this foundation milestone; there is no dashboard to style yet. No separate backend server is included.
 
-```bash
-ng generate --help
-```
+## Requirements
 
-## Building
+- Node.js `>=22.12.0` (tested with Node 22.22.3).
+- npm 10 or newer (tested with npm 10.9.8).
 
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+## Development commands
 
 ```bash
-ng test
+npm install
+npm run build
+npm run test
+npm run lint
+npm run typecheck
+npm run format
+
+# Angular renderer in a browser for UI development
+npm run dev:web
+
+# Angular renderer plus Electron shell (requires a graphical desktop session)
+npm run dev:desktop
+
+# After building the CLI
+npm run cli -- --version
+npm run cli -- --help
 ```
 
-## Running end-to-end tests
+The Electron application loads the built Angular renderer from `file://` unless the local development runner explicitly supplies the Angular dev-server URL. `window.repolens` is exposed only by the preload bridge; a browser-only run reports that Electron is not connected.
 
-For end-to-end (e2e) testing, run:
+## Project status
 
-```bash
-ng e2e
-```
+The project is under active development. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for verified tasks, build/test state, limitations, and the next milestone. Repository scanning, AST parsing, dependency analysis, dashboards, persistence, export bundles, the offline viewer, and AI providers are planned—not implemented—in this release.
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+## Documentation
 
-## Additional Resources
+- [Architecture](docs/ARCHITECTURE.md)
+- [Installation](docs/INSTALLATION.md)
+- [Development guide](docs/DEVELOPMENT.md)
+- [IPC and Electron security](docs/IPC_ARCHITECTURE.md)
+- [Package structure](docs/PACKAGE_STRUCTURE.md)
+- [Roadmap](docs/ROADMAP.md)
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+## License
+
+MIT. See [LICENSE](LICENSE).
