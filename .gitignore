@@ -1,15 +1,26 @@
-# See https://docs.github.com/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# Dependencies
+node_modules/
+**/node_modules/
 
-# Compiled output
-/dist
-/tmp
-/out-tsc
-/bazel-out
+# Build and test output
+**/dist/
+**/out-tsc/
+**/coverage/
+.angular/
+**/.angular/
+.tmp/
 
-# Node
-/node_modules
-npm-debug.log
-yarn-error.log
+# Local RepoLens data and SQLite files
+.repolens/
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
 
 # IDEs and editors
 .idea/
@@ -18,26 +29,15 @@ yarn-error.log
 .c9/
 *.launch
 .settings/
-*.sublime-workspace
+.history/
 
-# Visual Studio Code
+# VS Code: retain the repository's shared project configuration
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 !.vscode/mcp.json
-.history/*
-
-# Miscellaneous
-/.angular/cache
-.sass-cache/
-/connect.lock
-/coverage
-/libpeerconnection.log
-testem.log
-/typings
-__screenshots__/
 
 # System files
 .DS_Store

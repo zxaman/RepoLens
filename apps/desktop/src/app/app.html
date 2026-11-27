@@ -1,0 +1,36 @@
+<main class="welcome" aria-labelledby="welcome-title">
+  <section class="welcome-card">
+    <div class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 48 48" role="presentation">
+        <path d="M8 11h20v6H8zM8 21h13v6H8zM8 31h20v6H8z" />
+        <circle cx="35" cy="14" r="5" />
+        <circle cx="29" cy="24" r="4" />
+        <circle cx="36" cy="34" r="5" />
+        <path d="m32.5 18-2 3m1 7 2 2" />
+      </svg>
+    </div>
+
+    <p class="eyebrow">LOCAL-FIRST CODEBASE INTELLIGENCE</p>
+    <h1 id="welcome-title">RepoLens</h1>
+    <p class="tagline">Analyze once. Understand anywhere.</p>
+    <p class="description">
+      A private, portable way to make sense of unfamiliar codebases. The foundation is in place;
+      repository analysis arrives in later milestones.
+    </p>
+
+    <div class="status-panel" role="status" aria-live="polite">
+      <span class="status-indicator" aria-hidden="true"></span>
+      <div>
+        <p class="status-title">Foundation initialized</p>
+        <p class="status-detail">{{ bridgeStatus() }}</p>
+      </div>
+    </div>
+
+    <footer class="welcome-footer">
+      <span>Desktop foundation</span>
+      <span class="app-version">Version {{ appVersion() }}</span>
+    </footer>
+  </section>
+
+  <router-outlet />
+</main>

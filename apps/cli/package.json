@@ -1,0 +1,19 @@
+{
+  "name": "@repolens/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "repolens": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node ../../scripts/mark-cli-executable.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@repolens/core": "0.1.0",
+    "@repolens/shared": "0.1.0",
+    "commander": "^15.1.0"
+  }
+}
