@@ -1,6 +1,8 @@
 import {
   failureResult,
+  graphBuildProgressSchema,
   graphCycleReportSchema,
+  graphGenerationReportSchema,
   graphDisposeResultSchema,
   graphExportJsonSchema,
   graphNodeQueryResultSchema,
@@ -12,17 +14,19 @@ import {
   type GraphCycleReport,
   type GraphNodeQueryResult,
   type GraphPathResult,
+  type GraphGenerationReport,
   type GraphSummary,
   type GraphTraversalResult,
   type Result,
 } from '@repolens/shared';
-import type { IpcMain } from 'electron';
+import type { IpcMain, IpcMainInvokeEvent } from 'electron';
 import type { GraphManagementService } from '../services/graph-management.service.js';
 import { toProjectOperationError } from '../services/project-errors.js';
-import { IPC_CHANNELS } from '../security/ipc-channels.js';
+import { IPC_CHANNELS, IPC_EVENTS } from '../security/ipc-channels.js';
 import {
   graphCyclesPayloadSchema,
   graphDependenciesPayloadSchema,
+  graphGeneratePayloadSchema,
   graphPathPayloadSchema,
   graphProjectPayloadSchema,
   graphQueryPayloadSchema,
@@ -38,6 +42,21 @@ export function registerGraphIpc(
   graphs: GraphManagementService,
   senderGuard: IpcSenderGuard,
 ): void {
+  registerValidatedHandler(
+    ipcMain,
+    IPC_CHANNELS.graphsGenerate,
+    senderGuard,
+    graphGeneratePayloadSchema,
+    ({ projectId, scanId, analysisId }, event) =>
+      safely('graph generation', async () =>
+        graphGenerationReportSchema.parse(
+          await graphs.generate(projectId, scanId, analysisId, (progress) =>
+            sendGraphProgressToSender(event, progress),
+          ),
+        ),
+      ),
+    invalidPayloadAsResult<GraphGenerationReport>(),
+  );
   registerValidatedHandler(
     ipcMain,
     IPC_CHANNELS.graphsSummary,
@@ -115,6 +134,18 @@ export function registerGraphIpc(
       ),
     invalidPayloadAsResult<{ readonly disposed: true }>(),
   );
+}
+
+function sendGraphProgressToSender(event: IpcMainInvokeEvent, value: unknown): void {
+  const progress = graphBuildProgressSchema.safeParse(value);
+  if (!progress.success || event.sender.isDestroyed()) {
+    return;
+  }
+  try {
+    event.sender.send(IPC_EVENTS.graphsProgress, progress.data);
+  } catch {
+    // Closing the renderer must not interrupt graph construction or cleanup.
+  }
 }
 
 async function safely<T>(operation: string, action: () => Promise<T> | T): Promise<Result<T>> {

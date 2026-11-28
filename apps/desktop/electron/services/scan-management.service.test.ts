@@ -23,6 +23,13 @@ const project = projectSchema.parse({
   repositoryType: 'local',
   repositoryIndicators: [],
 });
+const otherProjectId = 'b1b2c3d4-e5f6-47a8-9012-abcdef123456';
+const otherProject = projectSchema.parse({
+  ...project,
+  id: otherProjectId,
+  name: 'other-project',
+  rootPath: '/fixture/other-project',
+});
 
 class InMemoryScanHistoryRepository implements ScanHistoryRepository {
   readonly items: ScanHistoryItem[] = [];
@@ -192,6 +199,117 @@ describe('scan management service', () => {
     expect(removeRegistration).toHaveBeenCalledOnce();
     expect(service.getCurrentResult(projectId, input.scanId)).toBeNull();
     await expect(service.getHistory(projectId)).resolves.toEqual([]);
+  });
+
+  it('keeps each project latest scan inventory isolated and removes only the selected project result', async () => {
+    const projects = {
+      getById: vi.fn(async (id: string) =>
+        id === projectId ? project : id === otherProjectId ? otherProject : null,
+      ),
+    } as unknown as ProjectManagementService;
+    const history = new InMemoryScanHistoryRepository();
+    const firstWorker = new ControlledScanWorker();
+    const secondWorker = new ControlledScanWorker();
+    const workers = [firstWorker, secondWorker];
+    const service = new ScanManagementService(projects, history, () => {
+      const worker = workers.shift();
+      if (worker === undefined) {
+        throw new Error('No scan worker was prepared for this test.');
+      }
+      return worker;
+    });
+
+    const firstRequest = service.start(projectId, undefined, vi.fn());
+    const firstInput = await firstWorker.started;
+    firstWorker.complete('completed');
+    const firstResult = await firstRequest;
+
+    const secondRequest = service.start(otherProjectId, undefined, vi.fn());
+    const secondInput = await secondWorker.started;
+    secondWorker.complete('completed');
+    const secondResult = await secondRequest;
+
+    expect(service.getCurrentResult(projectId, firstInput.scanId)).toEqual(firstResult);
+    expect(service.getCurrentResult(otherProjectId, secondInput.scanId)).toEqual(secondResult);
+    expect(service.getCurrentResult(projectId, secondInput.scanId)).toBeNull();
+
+    await service.removeProject(projectId, async () => ({ removed: true as const }));
+    expect(service.getCurrentResult(projectId, firstInput.scanId)).toBeNull();
+    expect(service.getCurrentResult(otherProjectId, secondInput.scanId)).toEqual(secondResult);
+  });
+
+  it('bounds retained scan inventories to fifty projects and refreshes least-recently-used access', async () => {
+    const projectIds = Array.from(
+      { length: 51 },
+      (_, index) => `00000000-0000-4000-8000-${(index + 1).toString(16).padStart(12, '0')}`,
+    );
+    const projectsById = new Map(
+      projectIds.map((id, index) => [
+        id,
+        projectSchema.parse({
+          ...project,
+          id,
+          name: `retention-project-${index + 1}`,
+          rootPath: `/fixture/retention-project-${index + 1}`,
+        }),
+      ]),
+    );
+    const projects = {
+      getById: vi.fn(async (id: string) => projectsById.get(id) ?? null),
+    } as unknown as ProjectManagementService;
+    const history = new InMemoryScanHistoryRepository();
+    const workers = projectIds.map(() => new ControlledScanWorker());
+    let workerIndex = 0;
+    const service = new ScanManagementService(projects, history, () => {
+      const worker = workers[workerIndex];
+      workerIndex += 1;
+      if (worker === undefined) {
+        throw new Error('No scan worker was prepared for this test.');
+      }
+      return worker;
+    });
+    const results: ScanResult[] = [];
+
+    for (let index = 0; index < 50; index += 1) {
+      const id = projectIds[index];
+      const worker = workers[index];
+      if (id === undefined || worker === undefined) {
+        throw new Error('A scan retention fixture was missing.');
+      }
+      const request = service.start(id, undefined, vi.fn());
+      const input = await worker.started;
+      worker.complete('completed');
+      results.push(await request);
+      expect(input.projectId).toBe(id);
+    }
+
+    const firstProjectId = projectIds[0];
+    const firstResult = results[0];
+    if (firstProjectId === undefined || firstResult === undefined) {
+      throw new Error('The first scan retention fixture was missing.');
+    }
+    expect(service.getCurrentResult(firstProjectId, firstResult.id)).toEqual(firstResult);
+
+    const newestProjectId = projectIds[50];
+    const newestWorker = workers[50];
+    if (newestProjectId === undefined || newestWorker === undefined) {
+      throw new Error('The newest scan retention fixture was missing.');
+    }
+    const newestRequest = service.start(newestProjectId, undefined, vi.fn());
+    const newestInput = await newestWorker.started;
+    newestWorker.complete('completed');
+    const newestResult = await newestRequest;
+    results.push(newestResult);
+
+    const leastRecentlyUsedProjectId = projectIds[1];
+    const leastRecentlyUsedResult = results[1];
+    expect(service.getCurrentResult(firstProjectId, firstResult.id)).toEqual(firstResult);
+    expect(
+      leastRecentlyUsedProjectId === undefined || leastRecentlyUsedResult === undefined
+        ? null
+        : service.getCurrentResult(leastRecentlyUsedProjectId, leastRecentlyUsedResult.id),
+    ).toBeNull();
+    expect(service.getCurrentResult(newestProjectId, newestInput.scanId)).toEqual(newestResult);
   });
 
   it('rejects unknown project IDs before starting a worker', async () => {

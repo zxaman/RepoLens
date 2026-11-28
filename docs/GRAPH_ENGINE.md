@@ -1,22 +1,22 @@
 # Phase 5 graph engine
 
-RepoLens Phase 5 adds a reusable Graphology-based, in-memory graph engine in `@repolens/core`. It consumes the shared Phase 4 `AnalysisResult` returned by the real analysis worker; it does not scan or parse source, mock relationships, or infer dependencies from filenames/naming conventions. The graph API is available through the secure preload bridge, but there is no visualization or Architecture Explorer UI in this phase.
+RepoLens Phase 5 includes a reusable Graphology-based, in-memory graph engine in `@repolens/core` plus an explicit graph-generation action on project details. It consumes the shared Phase 4 `AnalysisResult` returned by the real analysis worker; it does not scan or parse source, mock relationships, or infer dependencies from filenames/naming conventions. The UI presents validated graph counts, a bounded page of actual nodes, and cycle paths; a full visualization or Architecture Explorer is not included.
 
 ## Construction and data model
 
-`buildProjectGraph(analysisResult, options?)` is asynchronous. It validates the shared analysis result and its references, normalizes duplicate records deterministically, derives project-relative folders/files from actual analysis paths, and builds a private Graphology graph. Identical source records with the same ID are deduplicated; conflicting records with the same ID, missing references, cross-file relationships, path/file-folder conflicts, and configured graph limits fail construction rather than being silently repaired.
+`buildProjectGraph(analysisResult, options?)` is asynchronous. It validates the shared analysis result and its references, normalizes duplicate records deterministically, creates file nodes from the parser-confirmed `analyzedFiles` list (including files with no symbols or imports), adds paths evidenced by valid relationships, and builds a private Graphology graph. It rejects failed/cancelled analyses and completed/partial results with no successfully analyzed source files; a project-only graph is never used as an empty-analysis fallback. Identical source records with the same ID are deduplicated; conflicting records with the same ID, missing references, cross-file relationships, path/file-folder conflicts, and configured graph limits fail construction rather than being silently repaired.
 
 The graph schema supports the following node types:
 
-| Node type                                             | Phase 5 construction                                                                                  |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `project`                                             | One project node, ID `project:<projectId>`.                                                           |
-| `folder`                                              | Each parent path derived from an observed project-relative analysis path; ID `folder:<relativePath>`. |
-| `file`                                                | A file path present in symbol, import, export, or dependency evidence; ID `file:<relativePath>`.      |
-| `class`                                               | Phase 4 class symbols.                                                                                |
-| `function`                                            | Phase 4 functions, methods, constructors, and accessors.                                              |
-| `interface`                                           | Phase 4 interface symbols.                                                                            |
-| `component`, `service`, `api-route`, `database-model` | Reserved schema types; Phase 4 currently supplies no reliable evidence to create these nodes.         |
+| Node type                                             | Phase 5 construction                                                                                                          |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `project`                                             | One project node, ID `project:<projectId>`.                                                                                   |
+| `folder`                                              | Each parent path derived from a parser-confirmed or relationship-evidenced project-relative path; ID `folder:<relativePath>`. |
+| `file`                                                | Each successfully analyzed source path plus valid resolved relationship endpoints; ID `file:<relativePath>`.                  |
+| `class`                                               | Phase 4 class symbols.                                                                                                        |
+| `function`                                            | Phase 4 functions, methods, constructors, and accessors.                                                                      |
+| `interface`                                           | Phase 4 interface symbols.                                                                                                    |
+| `component`, `service`, `api-route`, `database-model` | Reserved schema types; Phase 4 currently supplies no reliable evidence to create these nodes.                                 |
 
 Symbol node IDs are `symbol:<AnalysisSymbol.id>`. Symbol nodes retain the original symbol kind, name, file path, source location, and exported flag. The engine does not copy source contents into graph metadata. Other Phase 4 symbol kinds are not promoted to graph nodes, and no symbols are inferred from names.
 
@@ -58,21 +58,23 @@ Shared graph limits are 150,000 nodes, 400,000 edges, 50,000 dependency referenc
 - `batchSize`: checkpoint interval, default 500 and clamped to 1–10,000;
 - `yieldToEventLoop`: host-supplied async yield function. `@repolens/core` does not import Node.js/Electron APIs; the desktop host supplies a `setImmediate` yield so cancellation and other IPC can be serviced during large builds.
 
-On cancellation, construction throws `GraphBuildCancelledError`; no partial graph is returned or published. In the desktop flow, `analysis.cancel(analysisId)` also cancels a graph build that is still in progress, and a terminal `graphs:progress` event reports `phase: "cancelled"`.
+On cancellation, core construction throws `GraphBuildCancelledError`; no partial graph is returned or published. The desktop graph-generation API currently does not expose an independent graph-cancel request. `analysis.cancel(analysisId)` applies only while the analysis worker is active; graph progress reports `preparing`, `nodes`, `edges`, and `metrics` while the separate generation action runs.
 
 ## Lifecycle and desktop boundary
 
 `InMemoryGraphProvider` is keyed by project UUID. `beginBuild(projectId, analysisId)` removes the previous graph immediately and returns a revision lease. `publish` succeeds only if the lease still matches the current project entry and the graph metadata matches; stale builds cannot overwrite a newer analysis. `fail`, `disposeProject`, `dispose`, and `cleanup` support replacement, failed/cancelled builds, project removal, shutdown, expiry, and capacity eviction. Defaults cap the provider at 50 project entries and expire entries after six hours; cleanup is performed on new builds and graph-service requests (there is no persistent or background graph store).
 
-For completed/partial `AnalysisResult`s, Electron's `AnalysisManagementService` starts the lease and builds the graph. `GraphManagementService` checks that the project remains registered and returns validated graph DTOs only. Main-process IPC validates every project ID/query and sender identity; the preload validates every response/progress payload. Progress is sent only to the renderer that initiated the analysis. The renderer never receives a Graphology instance or unrestricted IPC access.
+Analysis results and current scan inventories are retained per project in bounded main-process memory. A separate `GraphManagementService.generate(projectId, scanId, analysisId)` action verifies a registered/available project, its matching current **completed** scan, and the matching schema-valid completed or partial analysis. Partial analysis is supported and produces warnings for skipped files; zero-file, failed, cancelled, stale, or out-of-inventory analysis is reported as a failure and is never built. The action acquires a provider revision lease, reuses the existing core builder, and returns a validated generation report with graph counts, relationship classifications, cycle count, and warnings. A newer analysis invalidates the previous graph; reads also reject graphs whose scan or analysis is no longer current.
 
-The narrow `window.repolens.graphs` bridge exposes `summary`, `query`, `dependencies`, `shortestPath`, `cycles`, `exportJson`, `dispose`, and `onProgress`. Graph results are not written to scan history, project JSON, settings, SQLite, or any other persistence layer. Closing the app discards all graph data.
+Main-process IPC validates every project/scan/analysis ID and sender identity; the preload validates every response/progress payload. Progress is sent only to the renderer that initiated graph generation. The renderer receives only validated DTOs (summary, paginated nodes, cycle reports, and the generation report), never a Graphology instance or unrestricted IPC access.
+
+The narrow `window.repolens.graphs` bridge exposes `generate`, `summary`, `query`, `dependencies`, `shortestPath`, `cycles`, `exportJson`, `dispose`, and `onProgress`. Graph results are not written to scan history, project JSON, settings, SQLite, or any other persistence layer. Closing the app discards all scan inventories, analysis results, and graph data; the in-memory scan/analysis caches retain up to 50 project entries.
 
 ## JSON export and non-goals
 
 `exportJson()` emits deterministic, pretty-printed JSON with schema version `1.0.0`. Nodes, edges, dependencies, and metrics are validated by the shared Zod graph schemas; output is sorted by stable IDs and rejects payloads above the configured size limit. The renderer bridge returns the validated JSON string; there is no file-save UI.
 
-GraphML was not added: Phase 5 needs only a versioned JSON interchange format, and no GraphML serializer/round-trip contract is used by the current application. SQLite/Drizzle graph persistence, incremental indexing, graph visualization, CLI graph commands, report/ZIP/SVG/PNG export, change-impact analysis, framework/API/ORM discovery, and AI remain out of scope.
+GraphML was not added: Phase 5 needs only a versioned JSON interchange format, and no GraphML serializer/round-trip contract is used by the current application. SQLite/Drizzle graph persistence, incremental indexing, a full graph visualization, CLI graph commands, report/ZIP/SVG/PNG export, change-impact analysis, framework/API/ORM discovery, and AI remain out of scope.
 
 ## Verification
 

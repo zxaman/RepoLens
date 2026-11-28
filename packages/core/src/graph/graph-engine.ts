@@ -53,6 +53,7 @@ export const GRAPH_ENGINE_LIMITS = Object.freeze({
 });
 
 export interface GraphBuildOptions {
+  readonly projectName?: string;
   readonly signal?: { readonly aborted: boolean };
   readonly onProgress?: (progress: GraphBuildProgress) => void;
   readonly yieldToEventLoop?: () => Promise<void>;
@@ -538,6 +539,18 @@ export async function buildProjectGraph(
       'The supplied Phase 4 analysis result does not match its shared schema.',
     );
   }
+  if (analysis.status !== 'completed' && analysis.status !== 'partial') {
+    throw new GraphEngineError(
+      'INVALID_ANALYSIS',
+      'Graph construction requires completed or partial static analysis, not a failed or cancelled result.',
+    );
+  }
+  if (analysis.filesAnalyzed === 0 || analysis.analyzedFiles.length === 0) {
+    throw new GraphEngineError(
+      'INVALID_ANALYSIS',
+      'Static analysis did not produce any analyzed source files for a project graph.',
+    );
+  }
 
   const context = createBuildContext(
     {
@@ -554,7 +567,7 @@ export async function buildProjectGraph(
 
   const nodes = new Map<string, GraphNode>();
   const edges = new Map<string, GraphEdge>();
-  const filePaths = new Set<string>();
+  const filePaths = new Set<string>(analysis.analyzedFiles);
   const exportedSymbolIds = new Set(records.exports.flatMap((item) => item.symbolIds));
 
   const addNode = (candidate: GraphNode): void => {
@@ -642,7 +655,7 @@ export async function buildProjectGraph(
     id: projectNodeId,
     projectId: analysis.projectId,
     type: 'project',
-    name: analysis.projectId,
+    name: options.projectName?.trim() || analysis.projectId,
   });
 
   for (const folderPath of [...folderPaths].sort((left, right) => compareStrings(left, right))) {

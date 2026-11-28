@@ -11,6 +11,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import type { ProjectManagementService } from './project-management.service.js';
 import { AnalysisManagementService } from './analysis-management.service.js';
+import { GraphManagementService } from './graph-management.service.js';
 import type { AnalysisWorkerSession, WorkerAnalysisInput } from './analysis-worker-session.js';
 import type { ScanManagementService } from './scan-management.service.js';
 
@@ -105,7 +106,10 @@ class ControlledAnalysisWorker implements AnalysisWorkerSession {
     });
   }
 
-  complete(status: AnalysisResult['status']): void {
+  complete(
+    status: AnalysisResult['status'],
+    analyzedFiles: readonly string[] = ['src/index.ts'],
+  ): void {
     if (this.done || this.input === null || this.resolveResult === null) {
       return;
     }
@@ -120,8 +124,9 @@ class ControlledAnalysisWorker implements AnalysisWorkerSession {
         completedAt: '2026-11-27T00:00:01.000Z',
         durationMs: 1_000,
         filesSelected: 1,
-        filesAnalyzed: 1,
-        filesSkipped: 0,
+        filesAnalyzed: analyzedFiles.length,
+        filesSkipped: 1 - analyzedFiles.length,
+        analyzedFiles: [...analyzedFiles],
         symbols: [],
         imports: [],
         exports: [],
@@ -157,7 +162,7 @@ function createServices(
   };
 }
 
-function emptyAnalysis(analysisId: string): AnalysisResult {
+function singleFileAnalysis(analysisId: string): AnalysisResult {
   return analysisResultSchema.parse({
     analysisId,
     scanId,
@@ -166,9 +171,10 @@ function emptyAnalysis(analysisId: string): AnalysisResult {
     startedAt: '2026-11-27T00:00:00.000Z',
     completedAt: '2026-11-27T00:00:01.000Z',
     durationMs: 1_000,
-    filesSelected: 0,
-    filesAnalyzed: 0,
+    filesSelected: 1,
+    filesAnalyzed: 1,
     filesSkipped: 0,
+    analyzedFiles: ['src/index.ts'],
     symbols: [],
     imports: [],
     exports: [],
@@ -216,10 +222,12 @@ describe('analysis management service', () => {
     await expect(service.removeProject(projectId, async () => 'removed')).resolves.toBe('removed');
   });
 
-  it('invalidates the previous graph when analysis starts and publishes only the matching newer result', async () => {
+  it('invalidates old graphs during analysis and publishes only after explicit generation', async () => {
     const worker = new ControlledAnalysisWorker();
     const graphProvider = new InMemoryGraphProvider();
-    const oldGraph = await buildProjectGraph(emptyAnalysis('8d707ca0-312b-4a6f-8950-8df3441d973a'));
+    const oldGraph = await buildProjectGraph(
+      singleFileAnalysis('8d707ca0-312b-4a6f-8950-8df3441d973a'),
+    );
     graphProvider.replace(oldGraph);
     const projects = { getById: vi.fn(async () => project) };
     const scans = { getCurrentResult: vi.fn(() => scan) };
@@ -229,6 +237,12 @@ describe('analysis management service', () => {
       () => worker,
       graphProvider,
     );
+    const graphService = new GraphManagementService(
+      projects as unknown as ProjectManagementService,
+      graphProvider,
+      scans as unknown as ScanManagementService,
+      service,
+    );
 
     const request = service.start(projectId, scanId, vi.fn());
     const input = await worker.started;
@@ -237,9 +251,14 @@ describe('analysis management service', () => {
     worker.complete('completed');
     const result = await request;
     expect(result.analysisId).toBe(input.analysisId);
+    expect(graphProvider.get(projectId)).toBeNull();
+    expect(service.getCurrentResult(projectId, scanId, input.analysisId)).toEqual(result);
+
+    const generation = await graphService.generate(projectId, scanId, input.analysisId);
+    expect(generation.status).toBe('completed');
     const currentGraph = graphProvider.get(projectId);
     expect(currentGraph?.analysisId).toBe(input.analysisId);
-    expect(currentGraph?.getSummary().metrics.nodeCount).toBe(1);
+    expect(currentGraph?.getSummary().metrics.nodeCount).toBeGreaterThan(1);
 
     await expect(
       service.removeProject(projectId, async () => {
@@ -251,7 +270,7 @@ describe('analysis management service', () => {
     expect(graphProvider.get(projectId)).toBeNull();
   });
 
-  it('forwards graph progress and cancels graph generation without publishing a partial graph', async () => {
+  it('rejects empty partial analysis without publishing a project-only graph', async () => {
     const worker = new ControlledAnalysisWorker();
     const graphProvider = new InMemoryGraphProvider();
     const projects = { getById: vi.fn(async () => project) };
@@ -262,33 +281,26 @@ describe('analysis management service', () => {
       () => worker,
       graphProvider,
     );
-    let cancelRequested = false;
-    const graphProgress = vi.fn(
-      (progress: { readonly analysisId: string; readonly phase: string }) => {
-        if (progress.phase === 'nodes') {
-          cancelRequested = true;
-          void service.cancel(progress.analysisId);
-        }
-      },
+    const graphService = new GraphManagementService(
+      projects as unknown as ProjectManagementService,
+      graphProvider,
+      scans as unknown as ScanManagementService,
+      service,
     );
 
-    const request = service.start(projectId, scanId, vi.fn(), graphProgress);
+    const request = service.start(projectId, scanId, vi.fn());
     const input = await worker.started;
-    worker.complete('completed');
+    worker.complete('partial', []);
+    const result = await request;
+    expect(result).toMatchObject({ status: 'partial', filesAnalyzed: 0, analyzedFiles: [] });
 
-    await expect(request).resolves.toMatchObject({
-      analysisId: input.analysisId,
-      status: 'completed',
+    const report = await graphService.generate(projectId, scanId, input.analysisId);
+    expect(report).toMatchObject({
+      status: 'failed',
+      failureCode: 'ANALYSIS_EMPTY',
+      totalNodes: 0,
+      totalEdges: 0,
     });
-    expect(cancelRequested).toBe(true);
-    expect(graphProgress).toHaveBeenCalledWith(
-      expect.objectContaining({
-        analysisId: input.analysisId,
-        projectId,
-        scanId,
-        phase: 'cancelled',
-      }),
-    );
     expect(graphProvider.get(projectId)).toBeNull();
     expect(worker.terminate).toHaveBeenCalledOnce();
   });

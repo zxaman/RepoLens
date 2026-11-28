@@ -368,6 +368,140 @@ export const graphSummarySchema = z
   })
   .strict();
 
+const graphTypeCountRecordSchema = z
+  .record(z.string().min(1).max(32), z.number().int().nonnegative())
+  .superRefine((counts, context) => {
+    if (Object.keys(counts).length > 10) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Graph generation type-count records must remain bounded.',
+      });
+    }
+  });
+
+export const graphGenerationRequestSchema = z
+  .object({ projectId: z.uuid(), scanId: z.uuid(), analysisId: z.uuid() })
+  .strict();
+
+export const graphGenerationFailureCodeSchema = z.enum([
+  'PROJECT_UNAVAILABLE',
+  'SCAN_REQUIRED',
+  'SCAN_NOT_COMPLETED',
+  'ANALYSIS_REQUIRED',
+  'ANALYSIS_STALE',
+  'ANALYSIS_EMPTY',
+  'ANALYSIS_INVALID',
+  'ANALYSIS_FAILED',
+  'GRAPH_ALREADY_RUNNING',
+  'GRAPH_BUILD_FAILED',
+  'GRAPH_CANCELLED',
+  'GRAPH_SUPERSEDED',
+]);
+
+export const graphGenerationReportSchema = z
+  .object({
+    projectId: z.uuid(),
+    analysisId: z.uuid().nullable(),
+    analysisStatus: analysisStatusSchema.nullable(),
+    status: z.enum(['completed', 'partial', 'failed']),
+    totalNodes: z.number().int().nonnegative(),
+    totalEdges: z.number().int().nonnegative(),
+    nodesByType: graphTypeCountRecordSchema,
+    edgesByType: graphTypeCountRecordSchema,
+    resolvedDependencies: z.number().int().nonnegative(),
+    unresolvedDependencies: z.number().int().nonnegative(),
+    externalDependencies: z.number().int().nonnegative(),
+    cycleCount: z.number().int().nonnegative(),
+    cyclesTruncated: z.boolean(),
+    warnings: z.array(z.string().min(1).max(1024)).max(100).readonly(),
+    failureCode: graphGenerationFailureCodeSchema.optional(),
+    errorMessage: z.string().min(1).max(1024).optional(),
+  })
+  .strict()
+  .superRefine((report, context) => {
+    if (
+      Object.values(report.nodesByType).reduce((total, count) => total + count, 0) !==
+      report.totalNodes
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nodesByType'],
+        message: 'Node-type counts must sum to totalNodes.',
+      });
+    }
+    if (
+      Object.values(report.edgesByType).reduce((total, count) => total + count, 0) !==
+      report.totalEdges
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['edgesByType'],
+        message: 'Edge-type counts must sum to totalEdges.',
+      });
+    }
+    const validNodeTypes = new Set(graphNodeTypeSchema.options);
+    const validEdgeTypes = new Set(graphEdgeTypeSchema.options);
+    for (const type of Object.keys(report.nodesByType)) {
+      if (!validNodeTypes.has(type as (typeof graphNodeTypeSchema.options)[number])) {
+        context.addIssue({
+          code: 'custom',
+          path: ['nodesByType', type],
+          message: 'Graph reports may include only known node types.',
+        });
+      }
+    }
+    for (const type of Object.keys(report.edgesByType)) {
+      if (!validEdgeTypes.has(type as (typeof graphEdgeTypeSchema.options)[number])) {
+        context.addIssue({
+          code: 'custom',
+          path: ['edgesByType', type],
+          message: 'Graph reports may include only known edge types.',
+        });
+      }
+    }
+
+    if (report.status === 'failed') {
+      if (report.failureCode === undefined || report.errorMessage === undefined) {
+        context.addIssue({
+          code: 'custom',
+          path: ['failureCode'],
+          message: 'Failed graph reports require a failure code and a user-safe message.',
+        });
+      }
+      if (report.analysisId === null && report.analysisStatus !== null) {
+        context.addIssue({
+          code: 'custom',
+          path: ['analysisStatus'],
+          message: 'Analysis status must be null when no analysis result is available.',
+        });
+      }
+      if (report.totalNodes !== 0 || report.totalEdges !== 0 || report.cycleCount !== 0) {
+        context.addIssue({
+          code: 'custom',
+          path: ['totalNodes'],
+          message: 'Failed graph reports cannot expose partial graph data.',
+        });
+      }
+    } else if (
+      report.analysisId === null ||
+      report.analysisStatus === null ||
+      report.failureCode !== undefined ||
+      report.errorMessage !== undefined
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['analysisId'],
+        message: 'Successful graph reports require a matching analysis and no failure fields.',
+      });
+    } else if (report.analysisStatus !== report.status) {
+      context.addIssue({
+        code: 'custom',
+        path: ['status'],
+        message: 'The graph report status must match the completed static-analysis status.',
+      });
+    }
+  });
+
 export const graphExportSchema = z
   .object({
     schemaVersion: z.literal('1.0.0'),
@@ -795,6 +929,9 @@ export type GraphEdge = z.infer<typeof graphEdgeSchema>;
 export type GraphDependencyReference = z.infer<typeof graphDependencyReferenceSchema>;
 export type GraphMetrics = z.infer<typeof graphMetricsSchema>;
 export type GraphSummary = z.infer<typeof graphSummarySchema>;
+export type GraphGenerationRequest = z.infer<typeof graphGenerationRequestSchema>;
+export type GraphGenerationFailureCode = z.infer<typeof graphGenerationFailureCodeSchema>;
+export type GraphGenerationReport = z.infer<typeof graphGenerationReportSchema>;
 export type GraphExport = z.infer<typeof graphExportSchema>;
 export type GraphNodeQuery = z.input<typeof graphNodeQuerySchema>;
 export type GraphNodeQueryResult = z.infer<typeof graphNodeQueryResultSchema>;

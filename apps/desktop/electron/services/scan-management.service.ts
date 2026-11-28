@@ -20,6 +20,8 @@ import {
   type WorkerScanInput,
 } from './scan-worker-session.js';
 
+const MAX_IN_MEMORY_SCAN_RESULTS = 50;
+
 interface ActiveScan {
   readonly scanId: string;
   readonly projectId: string;
@@ -31,7 +33,7 @@ export type ScanProgressSink = (progress: ScanProgress) => void;
 
 export class ScanManagementService {
   private activeScan: ActiveScan | null = null;
-  private latestResult: { readonly projectId: string; readonly result: ScanResult } | null = null;
+  private readonly latestResults = new Map<string, ScanResult>();
   private startingScan = false;
   private startingProjectId: string | null = null;
   private readonly removingProjectIds = new Set<string>();
@@ -71,7 +73,7 @@ export class ScanManagementService {
         throw new ServiceError('PROJECT_NOT_FOUND', 'That project is no longer registered.');
       }
       if (project.status === 'unavailable') {
-        return await this.persistResult(
+        const failedResult = await this.persistResult(
           createFailedScanResult(
             scanId,
             projectId,
@@ -81,13 +83,16 @@ export class ScanManagementService {
             'ROOT_UNAVAILABLE',
           ),
         );
+        this.retainLatestResult(projectId, failedResult);
+        return failedResult;
       }
 
+      this.latestResults.delete(projectId);
       try {
         worker = this.createWorker();
       } catch (error) {
         console.error('RepoLens could not create the scan worker.', safeErrorDetails(error));
-        return await this.persistResult(
+        const failedResult = await this.persistResult(
           createFailedScanResult(
             scanId,
             projectId,
@@ -97,6 +102,8 @@ export class ScanManagementService {
             'WORKER_FAILED',
           ),
         );
+        this.retainLatestResult(projectId, failedResult);
+        return failedResult;
       }
 
       this.activeScan = { scanId, projectId, worker };
@@ -137,7 +144,7 @@ export class ScanManagementService {
         );
       }
       const persistedResult = await this.persistResult(result);
-      this.latestResult = { projectId: persistedResult.projectId, result: persistedResult };
+      this.retainLatestResult(persistedResult.projectId, persistedResult);
       return persistedResult;
     } finally {
       if (this.activeScan?.scanId === scanId) {
@@ -152,8 +159,25 @@ export class ScanManagementService {
   }
 
   getCurrentResult(projectId: string, scanId: string): ScanResult | null {
-    const current = this.latestResult;
-    return current?.projectId === projectId && current.result.id === scanId ? current.result : null;
+    const current = this.latestResults.get(projectId);
+    if (current === undefined || current.id !== scanId) {
+      return null;
+    }
+    this.latestResults.delete(projectId);
+    this.latestResults.set(projectId, current);
+    return current;
+  }
+
+  private retainLatestResult(projectId: string, result: ScanResult): void {
+    this.latestResults.delete(projectId);
+    this.latestResults.set(projectId, result);
+    while (this.latestResults.size > MAX_IN_MEMORY_SCAN_RESULTS) {
+      const oldestProjectId = this.latestResults.keys().next().value;
+      if (oldestProjectId === undefined) {
+        break;
+      }
+      this.latestResults.delete(oldestProjectId);
+    }
   }
 
   async cancel(scanId: string): Promise<{ readonly cancelled: true }> {
@@ -181,9 +205,7 @@ export class ScanManagementService {
     try {
       // Keep scan history intact if the registration cannot be removed from the registry.
       const result = await removeRegistration();
-      if (this.latestResult?.projectId === projectId) {
-        this.latestResult = null;
-      }
+      this.latestResults.delete(projectId);
       await this.history.removeProject(projectId);
       return result;
     } finally {

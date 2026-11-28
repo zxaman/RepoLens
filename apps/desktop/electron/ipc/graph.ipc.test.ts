@@ -1,8 +1,9 @@
-import { graphSummarySchema } from '@repolens/shared';
+import { graphGenerationReportSchema, graphSummarySchema } from '@repolens/shared';
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
+import type { GraphBuildProgress } from '@repolens/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { GraphManagementService } from '../services/graph-management.service.js';
-import { IPC_CHANNELS } from '../security/ipc-channels.js';
+import { IPC_CHANNELS, IPC_EVENTS } from '../security/ipc-channels.js';
 import { registerGraphIpc } from './graph.ipc.js';
 
 type RegisteredHandler = Parameters<IpcMain['handle']>[1];
@@ -10,6 +11,22 @@ type RegisteredHandler = Parameters<IpcMain['handle']>[1];
 const projectId = 'a1b2c3d4-e5f6-47a8-9012-abcdef123456';
 const analysisId = '7d707ca0-312b-4a6f-8950-8df3441d973a';
 const scanId = '92370c1b-8755-4057-ae23-0d885ad4d94b';
+const generationReport = graphGenerationReportSchema.parse({
+  projectId,
+  analysisId,
+  analysisStatus: 'completed',
+  status: 'completed',
+  totalNodes: 1,
+  totalEdges: 0,
+  nodesByType: { project: 1 },
+  edgesByType: {},
+  resolvedDependencies: 0,
+  unresolvedDependencies: 0,
+  externalDependencies: 0,
+  cycleCount: 0,
+  cyclesTruncated: false,
+  warnings: [],
+});
 const summary = graphSummarySchema.parse({
   projectId,
   analysisId,
@@ -67,6 +84,25 @@ describe('graph IPC', () => {
     } as unknown as Pick<IpcMain, 'handle'>;
     const senderGuard = vi.fn();
     const graphs = {
+      generate: vi.fn(
+        async (
+          _projectId: string,
+          _scanId: string,
+          _analysisId: string,
+          reportProgress: (progress: GraphBuildProgress) => void,
+        ) => {
+          reportProgress({
+            analysisId,
+            scanId,
+            projectId,
+            phase: 'nodes',
+            processed: 1,
+            total: 2,
+            percentage: 50,
+          });
+          return generationReport;
+        },
+      ),
       summary: vi.fn(async () => summary),
       query: vi.fn(async () => null),
       dependencies: vi.fn(async () => null),
@@ -77,13 +113,37 @@ describe('graph IPC', () => {
     } as unknown as GraphManagementService;
     registerGraphIpc(ipcMain, graphs, senderGuard);
 
-    const event = {} as IpcMainInvokeEvent;
+    const send = vi.fn();
+    const event = {
+      sender: { isDestroyed: () => false, send },
+    } as unknown as IpcMainInvokeEvent;
+    const generationHandler = handlers.get(IPC_CHANNELS.graphsGenerate);
+    await expect(generationHandler?.(event, { projectId, scanId, analysisId })).resolves.toEqual({
+      ok: true,
+      data: generationReport,
+    });
+    expect(graphs.generate).toHaveBeenCalledWith(
+      projectId,
+      scanId,
+      analysisId,
+      expect.any(Function),
+    );
+    expect(send).toHaveBeenCalledWith(
+      IPC_EVENTS.graphsProgress,
+      expect.objectContaining({ projectId, scanId, analysisId, phase: 'nodes' }),
+    );
+
     const summaryHandler = handlers.get(IPC_CHANNELS.graphsSummary);
     await expect(summaryHandler?.(event, { projectId })).resolves.toEqual({
       ok: true,
       data: summary,
     });
     expect(graphs.summary).toHaveBeenCalledWith(projectId);
+
+    await expect(
+      generationHandler?.(event, { projectId, scanId: '../outside', analysisId }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(graphs.generate).toHaveBeenCalledOnce();
 
     const queryHandler = handlers.get(IPC_CHANNELS.graphsQuery);
     await expect(
@@ -99,7 +159,7 @@ describe('graph IPC', () => {
       rootPath: '/private/path',
     });
     expect(strictPayloadResult).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
-    expect(senderGuard).toHaveBeenCalledTimes(3);
+    expect(senderGuard).toHaveBeenCalledTimes(5);
   });
 
   it('rejects an invalid graph object returned by a service before IPC resolves', async () => {

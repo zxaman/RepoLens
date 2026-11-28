@@ -501,6 +501,34 @@ code {
   overflow-wrap: anywhere;
 }
 
+.graph-panel {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--rl-primary) 2%, var(--rl-card));
+}
+
+.graph-panel h4 {
+  margin: 0;
+  color: var(--rl-text);
+}
+
+.graph-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.graph-warnings,
+.cycle-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.8rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--rl-secondary-text);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .result-warnings,
 .file-results {
   margin-top: 1rem;

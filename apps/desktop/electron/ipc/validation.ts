@@ -3,6 +3,7 @@ import {
   failureResult,
   graphCycleQuerySchema,
   graphDependencyQuerySchema,
+  graphGenerationRequestSchema,
   graphNodeQuerySchema,
   graphPathQuerySchema,
   scanConfigSchema,
@@ -28,6 +29,7 @@ export const analysisStartPayloadSchema = z
   .object({ projectId: z.uuid(), scanId: z.uuid() })
   .strict();
 export const analysisIdPayloadSchema = z.object({ analysisId: z.uuid() }).strict();
+export const graphGeneratePayloadSchema = graphGenerationRequestSchema;
 export const graphProjectPayloadSchema = z.object({ projectId: z.uuid() }).strict();
 export const graphQueryPayloadSchema = z
   .object({ projectId: z.uuid(), query: graphNodeQuerySchema })
@@ -60,6 +62,7 @@ const payloadSchemas: Record<IpcChannel, z.ZodType> = {
   [IPC_CHANNELS.scansGetLatest]: projectScanIdPayloadSchema,
   [IPC_CHANNELS.analysisStart]: analysisStartPayloadSchema,
   [IPC_CHANNELS.analysisCancel]: analysisIdPayloadSchema,
+  [IPC_CHANNELS.graphsGenerate]: graphGeneratePayloadSchema,
   [IPC_CHANNELS.graphsSummary]: graphProjectPayloadSchema,
   [IPC_CHANNELS.graphsQuery]: graphQueryPayloadSchema,
   [IPC_CHANNELS.graphsDependencies]: graphDependenciesPayloadSchema,

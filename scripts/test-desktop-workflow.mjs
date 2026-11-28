@@ -23,7 +23,12 @@ const cancellationProjectPath = join(temporaryRoot, 'cancellation-project');
 const registryPath = join(userDataPath, 'project-registry.json');
 const settingsPath = join(userDataPath, 'settings.json');
 const historyPath = join(userDataPath, 'scan-history.json');
-const sourceFiles = [join(projectPath, 'src', 'index.ts'), join(projectPath, 'src', 'helper.ts')];
+const sourceFiles = [
+  join(projectPath, 'src', 'index.ts'),
+  join(projectPath, 'src', 'helper.ts'),
+  join(projectPath, 'src', 'cycle-a.ts'),
+  join(projectPath, 'src', 'cycle-b.ts'),
+];
 let selectedPath = projectPath;
 
 function createProjectServices() {
@@ -116,6 +121,16 @@ try {
     'export const helper = (value: string) => `Hello ${value}`;\n',
     'utf8',
   );
+  await writeFile(
+    sourceFiles[2],
+    "import { cycleB } from './cycle-b';\nexport const cycleA = () => cycleB;\n",
+    'utf8',
+  );
+  await writeFile(
+    sourceFiles[3],
+    "import { cycleA } from './cycle-a';\nexport const cycleB = () => cycleA;\n",
+    'utf8',
+  );
   await writeFile(join(projectPath, 'README.md'), '# Local fixture\n', 'utf8');
   const sourceHashesBefore = await readSourceHashes(sourceFiles);
 
@@ -131,7 +146,12 @@ try {
     undefined,
     initialGraphProvider,
   );
-  const initialGraphs = new GraphManagementService(services.projects, initialGraphProvider);
+  const initialGraphs = new GraphManagementService(
+    services.projects,
+    initialGraphProvider,
+    initialScans,
+    initialAnalyses,
+  );
   const initialBridge = createBridge({
     ...services,
     scans: initialScans,
@@ -178,7 +198,7 @@ try {
     undefined,
     graphProvider,
   );
-  const graphs = new GraphManagementService(restarted.projects, graphProvider);
+  const graphs = new GraphManagementService(restarted.projects, graphProvider, scans, analyses);
   const bridge = createBridge({ ...restarted, scans, analyses, graphs });
   const scanProgress = [];
   const unsubscribeScanProgress = bridge.scans.onProgress((progress) => {
@@ -187,8 +207,8 @@ try {
   const scan = unwrap(await bridge.scans.start(project.id, DEFAULT_SCAN_CONFIG));
   unsubscribeScanProgress();
   assert.equal(scan.status, 'completed');
-  assert.equal(scan.filesDiscovered, 3);
-  assert.equal(scan.sourceFiles, 2);
+  assert.equal(scan.filesDiscovered, 5);
+  assert.equal(scan.sourceFiles, 4);
   assert.equal(scan.ignoredFiles, 0);
   assert.ok(scan.directoriesDiscovered >= 1);
   assert.ok(scan.durationMs >= 0);
@@ -213,9 +233,9 @@ try {
   });
   const analysis = unwrap(await bridge.analysis.start(project.id, scan.id));
   unsubscribeAnalysisProgress();
-  unsubscribeGraphProgress();
   assert.equal(analysis.status, 'completed');
-  assert.equal(analysis.filesAnalyzed, 2);
+  assert.equal(analysis.filesAnalyzed, 4);
+  assert.equal(analysis.analyzedFiles.length, 4);
   assert.ok(analysis.symbols.some((symbol) => symbol.name === 'greet'));
   assert.ok(analysis.imports.some((item) => item.specifier === './helper'));
   assert.ok(analysis.exports.some((item) => item.name === 'greet'));
@@ -224,8 +244,24 @@ try {
       (dependency) => dependency.kind === 'local' && dependency.resolvedPath === 'src/helper.ts',
     ),
   );
+  assert.ok(
+    analysis.dependencies.some((dependency) => dependency.resolvedPath === 'src/cycle-b.ts'),
+  );
+  assert.ok(
+    analysis.dependencies.some((dependency) => dependency.resolvedPath === 'src/cycle-a.ts'),
+  );
   assert.ok(analysisProgress.includes('initializing'));
   assert.ok(analysisProgress.includes('finalizing'));
+  assert.equal(unwrap(await bridge.graphs.summary(project.id)), null);
+
+  const generationReport = unwrap(
+    await bridge.graphs.generate(project.id, scan.id, analysis.analysisId),
+  );
+  unsubscribeGraphProgress();
+  assert.equal(generationReport.status, 'completed');
+  assert.equal(generationReport.resolvedDependencies, 3);
+  assert.equal(generationReport.cycleCount, 1);
+  assert.ok(graphProgress.includes('preparing'));
   assert.ok(graphProgress.includes('nodes'));
   assert.ok(graphProgress.includes('edges'));
   assert.ok(graphProgress.includes('metrics'));
@@ -233,8 +269,8 @@ try {
   const graphSummary = unwrap(await bridge.graphs.summary(project.id));
   assert.equal(graphSummary.analysisId, analysis.analysisId);
   assert.equal(graphSummary.scanId, scan.id);
-  assert.equal(graphSummary.metrics.fileCount, 2);
-  assert.equal(graphSummary.metrics.dependencyEdgeCount, 1);
+  assert.equal(graphSummary.metrics.fileCount, 4);
+  assert.equal(graphSummary.metrics.dependencyEdgeCount, 3);
   assert.ok(graphSummary.metrics.symbolCount >= 2);
   const graphFunctions = unwrap(
     await bridge.graphs.query(project.id, { types: ['function'], name: 'greet' }),
@@ -258,7 +294,7 @@ try {
     ['src/index.ts', 'src/helper.ts'],
   );
   const graphCycles = unwrap(await bridge.graphs.cycles(project.id));
-  assert.deepEqual(graphCycles.cycles, []);
+  assert.deepEqual(graphCycles.cycles, [['src/cycle-a.ts', 'src/cycle-b.ts']]);
   const graphJson = unwrap(await bridge.graphs.exportJson(project.id));
   const graphExport = JSON.parse(graphJson);
   assert.equal(graphExport.schemaVersion, '1.0.0');
@@ -268,6 +304,9 @@ try {
     true,
   );
   assert.equal(graphJson.includes('Graphology'), false);
+  assert.equal(generationReport.totalNodes, graphExport.nodes.length);
+  assert.equal(generationReport.totalEdges, graphExport.edges.length);
+  assert.equal(generationReport.cycleCount, graphCycles.cycles.length);
 
   // Cancellation is exercised through the same scan service and real worker used by Electron.
   await mkdir(cancellationProjectPath);
@@ -319,7 +358,7 @@ try {
   assert.equal((await readFile(sourceFiles[0], 'utf8')).startsWith('import '), true);
 
   console.log(
-    `Desktop workflow integration passed: import/restart, ${scan.filesDiscovered} real files scanned, ${analysis.symbols.length} symbols, local dependency resolution, scan cancellation, history persistence, and source-file integrity.`,
+    `Desktop workflow integration passed: import/restart, ${scan.filesDiscovered} real files scanned, ${analysis.symbols.length} symbols, graph ${generationReport.totalNodes} nodes/${generationReport.totalEdges} edges/${generationReport.cycleCount} cycle(s) from the real circular-dependency fixture, local dependency resolution, scan cancellation, history persistence, and source-file integrity.`,
   );
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

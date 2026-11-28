@@ -4,6 +4,7 @@ import type {
   GraphCycleQuery,
   GraphCycleReport,
   GraphDependencyQuery,
+  GraphGenerationReport,
   GraphNodeQuery,
   GraphNodeQueryResult,
   GraphPathQuery,
@@ -55,6 +56,11 @@ export interface RepoLensAPI {
   };
   readonly graphs: {
     onProgress(callback: (progress: GraphBuildProgress) => void): () => void;
+    generate(
+      projectId: string,
+      scanId: string,
+      analysisId: string,
+    ): Promise<Result<GraphGenerationReport>>;
     summary(projectId: string): Promise<Result<GraphSummary | null>>;
     query(projectId: string, query: GraphNodeQuery): Promise<Result<GraphNodeQueryResult | null>>;
     dependencies(

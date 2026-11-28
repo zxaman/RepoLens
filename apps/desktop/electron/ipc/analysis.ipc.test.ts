@@ -21,6 +21,7 @@ const analysisResult = analysisResultSchema.parse({
   filesSelected: 1,
   filesAnalyzed: 1,
   filesSkipped: 0,
+  analyzedFiles: ['src/index.ts'],
   symbols: [],
   imports: [],
   exports: [],
@@ -47,25 +48,10 @@ describe('static-analysis IPC', () => {
       filesProcessed: 0,
       currentPath: 'src/index.ts',
     };
-    const graphProgress = {
-      analysisId,
-      scanId,
-      projectId,
-      phase: 'nodes' as const,
-      processed: 1,
-      total: 2,
-      percentage: 50,
-    };
     const analyses = {
       start: vi.fn(
-        async (
-          _projectId: string,
-          _scanId: string,
-          report: (value: typeof progress) => void,
-          reportGraph: (value: typeof graphProgress) => void,
-        ) => {
+        async (_projectId: string, _scanId: string, report: (value: typeof progress) => void) => {
           report(progress);
-          reportGraph(graphProgress);
           return analysisResult;
         },
       ),
@@ -79,14 +65,9 @@ describe('static-analysis IPC', () => {
     const startHandler = handlers.get(IPC_CHANNELS.analysisStart);
     const startResult = await startHandler?.(event, { projectId, scanId });
     expect(startResult).toEqual({ ok: true, data: analysisResult });
-    expect(analyses.start).toHaveBeenCalledWith(
-      projectId,
-      scanId,
-      expect.any(Function),
-      expect.any(Function),
-    );
+    expect(analyses.start).toHaveBeenCalledWith(projectId, scanId, expect.any(Function));
     expect(send).toHaveBeenCalledWith(IPC_EVENTS.analysisProgress, progress);
-    expect(send).toHaveBeenCalledWith(IPC_EVENTS.graphsProgress, graphProgress);
+    expect(send).not.toHaveBeenCalledWith(IPC_EVENTS.graphsProgress, expect.anything());
 
     const invalidResult = await startHandler?.(event, { projectId, scanId: '../escape' });
     expect(invalidResult).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });

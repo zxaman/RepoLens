@@ -42,6 +42,22 @@ const historyItem: ScanHistoryItem = scanHistoryItemSchema.parse({
   warnings: [],
 });
 const scanResult = scanResultSchema.parse({ ...historyItem, files: [], errors: [] });
+const generationReport = {
+  projectId,
+  analysisId: '7d707ca0-312b-4a6f-8950-8df3441d973a',
+  analysisStatus: 'completed',
+  status: 'completed',
+  totalNodes: 1,
+  totalEdges: 0,
+  nodesByType: { project: 1 },
+  edgesByType: {},
+  resolvedDependencies: 0,
+  unresolvedDependencies: 0,
+  externalDependencies: 0,
+  cycleCount: 0,
+  cyclesTruncated: false,
+  warnings: [],
+};
 const analysisResult = analysisResultSchema.parse({
   analysisId: '7d707ca0-312b-4a6f-8950-8df3441d973a',
   scanId,
@@ -53,6 +69,7 @@ const analysisResult = analysisResultSchema.parse({
   filesSelected: 1,
   filesAnalyzed: 1,
   filesSkipped: 0,
+  analyzedFiles: ['src/index.ts'],
   symbols: [],
   imports: [],
   exports: [],
@@ -126,11 +143,22 @@ describe('secure analysis and scan preload APIs', () => {
         invocations.push({ channel, ...(payload === undefined ? {} : { payload }) });
         return {
           ok: true,
-          data: channel === IPC_CHANNELS.graphsDispose ? { disposed: true } : null,
+          data:
+            channel === IPC_CHANNELS.graphsDispose
+              ? { disposed: true }
+              : channel === IPC_CHANNELS.graphsGenerate
+                ? generationReport
+                : null,
         };
       },
     });
 
+    await expect(
+      api.graphs.generate(projectId, scanId, analysisResult.analysisId),
+    ).resolves.toEqual({
+      ok: true,
+      data: generationReport,
+    });
     await expect(api.graphs.summary(projectId)).resolves.toEqual({ ok: true, data: null });
     await expect(
       api.graphs.query(projectId, { types: ['file'], pathPrefix: 'src', limit: 10 }),
@@ -152,6 +180,10 @@ describe('secure analysis and scan preload APIs', () => {
       data: { disposed: true },
     });
     expect(invocations).toEqual([
+      {
+        channel: IPC_CHANNELS.graphsGenerate,
+        payload: { projectId, scanId, analysisId: analysisResult.analysisId },
+      },
       { channel: IPC_CHANNELS.graphsSummary, payload: { projectId } },
       {
         channel: IPC_CHANNELS.graphsQuery,

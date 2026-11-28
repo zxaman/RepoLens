@@ -634,6 +634,9 @@ export async function analyzeScan(options: AnalyzeScanOptions): Promise<Analysis
     filesSelected: selectedFileCount,
     filesAnalyzed,
     filesSkipped,
+    analyzedFiles: parsedFiles.flatMap((fileResult) =>
+      fileResult === null ? [] : [fileResult.filePath],
+    ),
     symbols,
     imports,
     exports,
@@ -654,6 +657,7 @@ export async function analyzeScan(options: AnalyzeScanOptions): Promise<Analysis
       filesSelected: selectedFileCount,
       filesAnalyzed: 0,
       filesSkipped,
+      analyzedFiles: [],
       symbols: [],
       imports: [],
       exports: [],

@@ -24,7 +24,7 @@
         <button
           type="button"
           class="button-danger-quiet"
-          [disabled]="removing() || scanning() || analyzing()"
+          [disabled]="removing() || scanning() || analyzing() || generatingGraph()"
           (click)="requestRemove()"
         >
           Remove
@@ -174,6 +174,7 @@
               current.status === 'unavailable' ||
               scanning() ||
               analyzing() ||
+              generatingGraph() ||
               scanLoading() ||
               (includeSensitiveFiles() && !acknowledgeSensitiveFileRisk())
             "
@@ -403,13 +404,19 @@
                 <p class="field-help">
                   Analyze only TypeScript, TSX, JavaScript, and JSX source files already listed in
                   this scan. RepoLens reads them locally with the TypeScript Compiler API; it does
-                  not execute code, install dependencies, or build a dependency graph.
+                  not execute code or install dependencies. Graph generation is a separate action
+                  that requires a completed scan and successful or partial static analysis.
                 </p>
                 <div class="scan-actions">
                   <button
                     type="button"
                     class="button-primary"
-                    [disabled]="current.status === 'unavailable' || scanning() || analyzing()"
+                    [disabled]="
+                      current.status === 'unavailable' ||
+                      scanning() ||
+                      analyzing() ||
+                      generatingGraph()
+                    "
                     (click)="startAnalysis()"
                   >
                     {{
@@ -722,6 +729,200 @@
                       <p class="field-help">No analysis diagnostics were reported.</p>
                     }
                   </details>
+
+                  @if (analysis.status === 'completed' || analysis.status === 'partial') {
+                    <section class="graph-panel" aria-labelledby="graph-heading">
+                      <div class="card-heading">
+                        <div>
+                          <p class="eyebrow">GRAPH GENERATION</p>
+                          <h4 id="graph-heading">Dependency graph</h4>
+                        </div>
+                        @if (graphReport(); as report) {
+                          <span
+                            class="status-badge"
+                            [class.analysis-status-partial]="report.status === 'partial'"
+                          >
+                            {{ report.status }}
+                          </span>
+                        }
+                      </div>
+                      <p class="field-help">
+                        Build a graph from the parser-discovered files, symbols, and resolved local
+                        relationships in this analysis. Partial analyses are supported; unreadable
+                        files are omitted and reported. Unresolved imports are never converted into
+                        resolved local edges.
+                      </p>
+                      @if (analysis.status === 'partial') {
+                        <p class="field-help">
+                          This analysis is partial. Any graph will cover only
+                          {{ analysis.filesAnalyzed }} successfully analyzed source file(s).
+                        </p>
+                      }
+                      <div class="scan-actions">
+                        <button
+                          type="button"
+                          class="button-primary"
+                          [disabled]="
+                            current.status !== 'registered' ||
+                            scan.status !== 'completed' ||
+                            analysis.filesAnalyzed === 0 ||
+                            scanning() ||
+                            analyzing() ||
+                            generatingGraph()
+                          "
+                          (click)="generateGraph()"
+                        >
+                          {{
+                            generatingGraph()
+                              ? 'Generating graph…'
+                              : graphReport()
+                                ? 'Regenerate graph'
+                                : 'Generate dependency graph'
+                          }}
+                        </button>
+                      </div>
+                      @if (scan.status !== 'completed') {
+                        <p class="field-help" role="status">
+                          Graph generation requires a completed scan. Run a fresh scan first.
+                        </p>
+                      }
+                      @if (analysis.filesAnalyzed === 0) {
+                        <p class="scan-alert" role="status">
+                          No successfully analyzed source files are available, so RepoLens will not
+                          build an empty project-only graph.
+                        </p>
+                      }
+                      @if (graphError()) {
+                        <p class="scan-alert" role="alert">{{ graphError() }}</p>
+                      }
+                      @if (generatingGraph()) {
+                        <div class="progress-panel" role="status" aria-live="polite">
+                          <div class="progress-heading">
+                            <strong>
+                              {{
+                                graphProgress()
+                                  ? graphPhaseLabel(graphProgress()!.phase)
+                                  : 'Validating analysis and preparing graph data'
+                              }}
+                            </strong>
+                            <span>
+                              {{ graphProgress()?.processed ?? 0 }} /
+                              {{ graphProgress()?.total ?? 0 }} ·
+                              {{ graphProgress()?.percentage ?? 0 }}%
+                            </span>
+                          </div>
+                          <div
+                            class="progress-track"
+                            role="progressbar"
+                            aria-label="Dependency graph generation progress"
+                            [attr.aria-valuenow]="graphProgress()?.percentage ?? null"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                          >
+                            <span
+                              [class.progress-indeterminate]="graphProgress() === null"
+                              [style.width.%]="graphProgress()?.percentage ?? 0"
+                            ></span>
+                          </div>
+                        </div>
+                      }
+                      @if (graphReport(); as report) {
+                        @if (report.status === 'failed') {
+                          <p class="scan-alert" role="alert">{{ report.errorMessage }}</p>
+                        } @else {
+                          <div class="scan-metrics graph-metrics">
+                            <div>
+                              <strong>{{ report.totalNodes }}</strong><span>graph nodes</span>
+                            </div>
+                            <div>
+                              <strong>{{ report.totalEdges }}</strong><span>graph edges</span>
+                            </div>
+                            <div>
+                              <strong>{{ report.resolvedDependencies }}</strong><span
+                                >resolved local imports</span
+                              >
+                            </div>
+                            <div>
+                              <strong>{{ report.unresolvedDependencies }}</strong><span
+                                >unresolved imports</span
+                              >
+                            </div>
+                            <div>
+                              <strong>{{ report.externalDependencies }}</strong><span
+                                >external imports</span
+                              >
+                            </div>
+                            <div>
+                              <strong
+                                >{{ report.cycleCount
+                                }}{{ report.cyclesTruncated ? '+' : '' }}</strong
+                              ><span>dependency cycles</span>
+                            </div>
+                          </div>
+                          @if (report.warnings.length) {
+                            <ul class="graph-warnings">
+                              @for (warning of report.warnings; track warning) {
+                                <li>{{ warning }}</li>
+                              }
+                            </ul>
+                          }
+                        }
+                      }
+                      @if (graphSummary(); as summary) {
+                        <p class="field-help">
+                          Actual graph data: {{ summary.metrics.fileCount }} files ·
+                          {{ summary.metrics.symbolCount }} symbols ·
+                          {{ summary.metrics.cyclicComponentCount }} cyclic component(s). The node
+                          list below is a bounded first page of 100 validated graph nodes.
+                        </p>
+                      }
+                      @if (graphNodes().length) {
+                        <details class="file-results graph-node-results" open>
+                          <summary>Graph nodes ({{ graphNodes().length }} shown)</summary>
+                          <div class="file-table-wrap">
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Name</th>
+                                  <th>Type</th>
+                                  <th>Project path</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                @for (node of graphNodes(); track node.id) {
+                                  <tr>
+                                    <td>
+                                      <code>{{ node.name }}</code>
+                                    </td>
+                                    <td>{{ node.type }}</td>
+                                    <td>
+                                      <code>{{ node.relativePath ?? node.filePath ?? '—' }}</code>
+                                    </td>
+                                  </tr>
+                                }
+                              </tbody>
+                            </table>
+                          </div>
+                        </details>
+                      }
+                      @if (graphCycles(); as cycles) {
+                        <details class="file-results graph-node-results">
+                          <summary>Cycle paths ({{ cycles.cycles.length }} found)</summary>
+                          @if (cycles.cycles.length) {
+                            <ol class="cycle-list">
+                              @for (cycle of cycles.cycles; track $index) {
+                                <li>
+                                  <code>{{ cycle.join(' → ') }}</code>
+                                </li>
+                              }
+                            </ol>
+                          } @else {
+                            <p class="field-help">No directed import cycles were found.</p>
+                          }
+                        </details>
+                      }
+                    </section>
+                  }
                 }
               </section>
             }

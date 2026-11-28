@@ -37,6 +37,7 @@ function makeAnalysis(overrides: Partial<AnalysisResult> = {}): AnalysisResult {
     filesSelected: 4,
     filesAnalyzed: 4,
     filesSkipped: 0,
+    analyzedFiles: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/isolated.ts'],
     symbols: [
       {
         id: 'src/a.ts#module',
@@ -218,6 +219,40 @@ describe('Graphology in-memory graph engine', () => {
     expect(exported.edges.every((edge) => edge.sourceId && edge.targetId)).toBe(true);
     expect(JSON.stringify(exported)).not.toContain('sourceText');
     expect(JSON.stringify(exported)).not.toContain('const A');
+  });
+
+  it('includes analyzed files without symbols and rejects an analysis with no parsed files', async () => {
+    const analyzedFile = analysisResultSchema.parse({
+      ...makeAnalysis(),
+      filesSelected: 1,
+      filesAnalyzed: 1,
+      filesSkipped: 0,
+      analyzedFiles: ['src/isolated.ts'],
+      symbols: [],
+      imports: [],
+      exports: [],
+      dependencies: [],
+      diagnostics: [],
+    });
+    const graph = await buildProjectGraph(analyzedFile);
+    expect(graph.getSummary().metrics.fileCount).toBe(1);
+    expect(graph.queryNodes({ types: ['file'] }).nodes).toEqual([
+      expect.objectContaining({
+        id: 'file:src/isolated.ts',
+        relativePath: 'src/isolated.ts',
+      }),
+    ]);
+
+    const emptyAnalysis = analysisResultSchema.parse({
+      ...analyzedFile,
+      filesSelected: 0,
+      filesAnalyzed: 0,
+      filesSkipped: 0,
+      analyzedFiles: [],
+    });
+    await expect(buildProjectGraph(emptyAnalysis)).rejects.toMatchObject({
+      code: 'INVALID_ANALYSIS',
+    });
   });
 
   it('calculates file, relationship, degree, and SCC metrics from the graph', async () => {
@@ -436,6 +471,8 @@ describe('Graphology in-memory graph engine', () => {
 
     const conflictingPaths = analysisResultSchema.parse({
       ...base,
+      filesAnalyzed: 2,
+      analyzedFiles: ['src/a', 'src/a/child.ts'],
       imports: [],
       dependencies: [],
       exports: [],

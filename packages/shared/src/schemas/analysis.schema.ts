@@ -213,13 +213,61 @@ export const analysisResultSchema = z
     filesSelected: z.number().int().nonnegative(),
     filesAnalyzed: z.number().int().nonnegative(),
     filesSkipped: z.number().int().nonnegative(),
+    analyzedFiles: z.array(safeAnalysisPathSchema).max(10_000).readonly(),
     symbols: z.array(analysisSymbolSchema).max(50_000).readonly(),
     imports: z.array(analysisImportSchema).max(50_000).readonly(),
     exports: z.array(analysisExportSchema).max(50_000).readonly(),
     dependencies: z.array(analysisDependencySchema).max(50_000).readonly(),
     diagnostics: z.array(analysisDiagnosticSchema).max(2_000).readonly(),
   })
-  .strict();
+  .strict()
+  .superRefine((analysis, context) => {
+    if (analysis.filesAnalyzed !== analysis.analyzedFiles.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['analyzedFiles'],
+        message: 'Analyzed file paths must match filesAnalyzed.',
+      });
+    }
+    if (analysis.filesAnalyzed > analysis.filesSelected) {
+      context.addIssue({
+        code: 'custom',
+        path: ['filesAnalyzed'],
+        message: 'The number of analyzed files cannot exceed filesSelected.',
+      });
+    }
+
+    const analyzedFiles = new Set(analysis.analyzedFiles);
+    if (analyzedFiles.size !== analysis.analyzedFiles.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['analyzedFiles'],
+        message: 'Analyzed file paths must be unique.',
+      });
+    }
+
+    const requireAnalyzedFile = (filePath: string, path: (string | number)[]): void => {
+      if (!analyzedFiles.has(filePath)) {
+        context.addIssue({
+          code: 'custom',
+          path,
+          message: 'Analysis records must refer to a file that was successfully analyzed.',
+        });
+      }
+    };
+    analysis.symbols.forEach((symbol, index) =>
+      requireAnalyzedFile(symbol.location.filePath, ['symbols', index, 'location', 'filePath']),
+    );
+    analysis.imports.forEach((item, index) =>
+      requireAnalyzedFile(item.filePath, ['imports', index, 'filePath']),
+    );
+    analysis.exports.forEach((item, index) =>
+      requireAnalyzedFile(item.filePath, ['exports', index, 'filePath']),
+    );
+    analysis.dependencies.forEach((item, index) =>
+      requireAnalyzedFile(item.fromPath, ['dependencies', index, 'fromPath']),
+    );
+  });
 
 export type AnalysisStatus = z.infer<typeof analysisStatusSchema>;
 export type AnalysisPhase = z.infer<typeof analysisPhaseSchema>;
