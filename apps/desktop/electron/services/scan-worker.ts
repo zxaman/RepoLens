@@ -3,6 +3,7 @@ import { scanConfigSchema, scanResultSchema } from '@repolens/shared';
 import type { ScanConfig, ScanProgress, ScanResult } from '@repolens/shared';
 import { scanProject } from '@repolens/core';
 import { NodeScanFileSystem } from './node-scan-file-system.js';
+import { safeErrorDetails } from './diagnostic-logging.js';
 
 const startRequestSchema = scanConfigSchema.transform((config) => config);
 
@@ -81,7 +82,8 @@ async function runScan(message: StartMessage, abortController: AbortController):
       postMessage({ type: 'progress', progress: pendingProgress });
     }
     postMessage({ type: 'result', result: scanResultSchema.parse(result) });
-  } catch {
+  } catch (error) {
+    console.error('RepoLens scan worker failed.', safeErrorDetails(error, [message.rootPath]));
     postMessage({
       type: 'failure',
       message: 'The scan worker stopped unexpectedly before it could return a result.',

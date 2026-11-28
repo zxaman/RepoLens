@@ -391,6 +391,17 @@ export class ProjectDetailsPageComponent implements OnInit {
     return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex] ?? 'TB'}`;
   }
 
+  formatDuration(durationMs: number): string {
+    if (durationMs < 1_000) {
+      return `${durationMs} ms`;
+    }
+    const totalSeconds = durationMs / 1_000;
+    if (totalSeconds < 60) {
+      return `${totalSeconds.toFixed(1)} s`;
+    }
+    return `${Math.floor(totalSeconds / 60)}m ${Math.floor(totalSeconds % 60)}s`;
+  }
+
   shortHash(file: ScanFile): string {
     return file.sha256 === undefined ? 'Not hashed' : `${file.sha256.slice(0, 16)}…`;
   }

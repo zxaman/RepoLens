@@ -11,6 +11,7 @@ import {
   type ScanWarning,
 } from '@repolens/shared';
 import type { ProjectManagementService } from './project-management.service.js';
+import { safeErrorDetails } from './diagnostic-logging.js';
 import { ServiceError } from './service-error.js';
 import type { ScanHistoryRepository } from './scan-history-repository.js';
 import {
@@ -84,7 +85,8 @@ export class ScanManagementService {
 
       try {
         worker = this.createWorker();
-      } catch {
+      } catch (error) {
+        console.error('RepoLens could not create the scan worker.', safeErrorDetails(error));
         return await this.persistResult(
           createFailedScanResult(
             scanId,
@@ -177,11 +179,12 @@ export class ScanManagementService {
 
     this.removingProjectIds.add(projectId);
     try {
-      await this.history.removeProject(projectId);
+      // Keep scan history intact if the registration cannot be removed from the registry.
       const result = await removeRegistration();
       if (this.latestResult?.projectId === projectId) {
         this.latestResult = null;
       }
+      await this.history.removeProject(projectId);
       return result;
     } finally {
       this.removingProjectIds.delete(projectId);
@@ -213,7 +216,7 @@ export class ScanManagementService {
     try {
       return await this.history.append(item.projectId, item);
     } catch (error) {
-      console.error('RepoLens could not save scan history.', error);
+      console.error('RepoLens could not save scan history.', safeErrorDetails(error));
       const warning: ScanWarning = {
         code: 'HISTORY_SAVE_FAILED',
         message: 'The scan finished, but RepoLens could not save it to scan history.',

@@ -27,7 +27,7 @@
     "test": "npm run build:packages && npm run test:unit && npm run test:angular && npm run test:electron-workers",
     "test:unit": "vitest run",
     "test:angular": "npm run build --workspace=@repolens/shared && npm run test:web --workspace=@repolens/desktop",
-    "test:electron-workers": "npm run build --workspace=@repolens/shared && npm run build --workspace=@repolens/core && npm run build --workspace=@repolens/language-support && npm run build:electron --workspace=@repolens/desktop && node scripts/test-electron-workers.mjs",
+    "test:electron-workers": "npm run build --workspace=@repolens/shared && npm run build --workspace=@repolens/core && npm run build --workspace=@repolens/language-support && npm run build:electron --workspace=@repolens/desktop && node scripts/test-electron-workers.mjs && node scripts/test-desktop-workflow.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "npm run build:packages && npm run typecheck:packages && npm run typecheck:cli && npm run typecheck:desktop",
     "typecheck:packages": "npm run typecheck --workspace=@repolens/shared && npm run typecheck --workspace=@repolens/core && npm run typecheck --workspace=@repolens/language-support && npm run typecheck --workspace=@repolens/database && npm run typecheck --workspace=@repolens/export && npm run typecheck --workspace=@repolens/ai",

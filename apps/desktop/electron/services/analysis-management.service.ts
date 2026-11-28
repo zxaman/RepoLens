@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { analysisResultSchema } from '@repolens/shared';
 import type { AnalysisProgress, AnalysisResult } from '@repolens/shared';
 import type { ProjectManagementService } from './project-management.service.js';
+import { safeErrorDetails } from './diagnostic-logging.js';
 import { ServiceError } from './service-error.js';
 import type { ScanManagementService } from './scan-management.service.js';
 import {
@@ -76,7 +77,11 @@ export class AnalysisManagementService {
 
       try {
         worker = this.createWorker();
-      } catch {
+      } catch (error) {
+        console.error(
+          'RepoLens could not create the analysis worker.',
+          safeErrorDetails(error, [project.rootPath]),
+        );
         throw new ServiceError('INTERNAL_ERROR', 'RepoLens could not start the analysis worker.');
       }
 

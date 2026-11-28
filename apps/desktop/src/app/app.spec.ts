@@ -117,8 +117,10 @@ describe('App project-management shell', () => {
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('.brand-name')?.textContent).toContain('RepoLens');
     expect(page.textContent).toContain('Import Project');
-    expect(page.textContent).toContain(
-      'Project management is available in the RepoLens desktop application.',
+    expect(page.textContent).toContain('Browser preview only.');
+    expect(page.textContent).toContain('npm run dev:desktop');
+    expect(page.querySelector('app-project-import-button button')?.hasAttribute('disabled')).toBe(
+      true,
     );
     expect(page.textContent).toContain('Unavailable');
     expect(page.textContent).not.toContain('Total files');
@@ -187,6 +189,6 @@ describe('App project-management shell', () => {
     expect(projectService.activeProject()).toEqual(defaultProject);
     expect(projectService.projects()).toContainEqual(defaultProject);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('sample-project');
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Not scanned yet');
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Not scanned yet');
   });
 });

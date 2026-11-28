@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analysisProgressSchema, analysisResultSchema, scanResultSchema } from '@repolens/shared';
 import type { AnalysisProgress, AnalysisResult, ScanResult } from '@repolens/shared';
+import { safeErrorDetails } from './diagnostic-logging.js';
 
 const serviceDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -99,7 +100,11 @@ export class ElectronAnalysisWorkerSession implements AnalysisWorkerSession {
           finishReject(new Error(message));
         }
       });
-      this.worker.once('error', () => {
+      this.worker.once('error', (error) => {
+        console.error(
+          'RepoLens analysis worker emitted an error.',
+          safeErrorDetails(error, [input.rootPath]),
+        );
         finishReject(new Error('The analysis worker could not complete static analysis.'));
       });
       this.worker.once('exit', (code) => {

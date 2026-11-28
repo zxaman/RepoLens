@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scanProgressSchema, scanResultSchema } from '@repolens/shared';
 import type { ScanConfig, ScanProgress, ScanResult } from '@repolens/shared';
+import { safeErrorDetails } from './diagnostic-logging.js';
 
 const serviceDirectory = dirname(fileURLToPath(import.meta.url));
 
@@ -90,7 +91,11 @@ export class ElectronScanWorkerSession implements ScanWorkerSession {
           finishReject(new Error(message));
         }
       });
-      this.worker.once('error', () => {
+      this.worker.once('error', (error) => {
+        console.error(
+          'RepoLens scan worker emitted an error.',
+          safeErrorDetails(error, [input.rootPath]),
+        );
         finishReject(new Error('The scan worker could not complete the scan.'));
       });
       this.worker.once('exit', (code) => {

@@ -120,6 +120,24 @@
   white-space: nowrap;
 }
 
+.runtime-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+  margin: 1rem 2rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--rl-warning) 40%, var(--rl-border));
+  border-radius: 0.65rem;
+  color: var(--rl-warning);
+  background: color-mix(in srgb, var(--rl-warning) 6%, var(--rl-card));
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.runtime-notice code {
+  font-family: var(--rl-font-mono);
+}
+
 .app-content {
   min-height: calc(100vh - 4.3rem);
   padding: 0 2rem;
@@ -140,6 +158,10 @@
     width: 100%;
     justify-content: flex-end;
     margin-left: 0;
+  }
+
+  .runtime-notice {
+    margin-inline: 1rem;
   }
 
   .app-content {

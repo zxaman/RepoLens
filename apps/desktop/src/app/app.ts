@@ -14,6 +14,8 @@ import { SettingsService } from './features/settings/settings.service';
 })
 export class App implements OnInit {
   protected readonly appVersion = signal('—');
+  protected readonly desktopRuntimeAvailable =
+    typeof window !== 'undefined' && window.repolens !== undefined;
   protected readonly activeProject: ProjectService['activeProject'];
   private readonly appInfo = inject(AppInfoService);
   private readonly projectService = inject(ProjectService);
