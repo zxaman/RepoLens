@@ -24,7 +24,7 @@
         <button
           type="button"
           class="button-danger-quiet"
-          [disabled]="removing()"
+          [disabled]="removing() || scanning()"
           (click)="requestRemove()"
         >
           Remove
@@ -93,13 +93,405 @@
       </section>
 
       <section class="overview-card scan-card" aria-labelledby="scan-heading">
-        <p class="eyebrow">ANALYSIS</p>
+        <p class="eyebrow">LOCAL ANALYSIS</p>
         <h2 id="scan-heading">Repository scan</h2>
-        <p class="scan-status">Not scanned yet</p>
         <p class="scan-description">
-          Your project is registered. Repository analysis will become available in the next
-          development phase.
+          RepoLens reads project metadata and selected package/configuration evidence, and hashes
+          eligible files locally. It never runs project code, installs dependencies, or uploads
+          repository contents.
         </p>
+
+        <div class="scan-safety-note" role="note">
+          <strong>Safe defaults</strong>
+          <span>
+            Mandatory exclusions such as <code>.git</code> and <code>node_modules</code> always win.
+            Sensitive paths are skipped unless you explicitly opt in below.
+          </span>
+        </div>
+
+        <details class="scan-options">
+          <summary>Configure scan exclusions</summary>
+          <p class="field-help">
+            These built-in directories stay excluded: {{ defaultExcludedDirectories.join(', ') }}.
+            Add directory names below to exclude more folders.
+          </p>
+          <label for="extra-excluded-directories">Additional directory names</label>
+          <textarea
+            id="extra-excluded-directories"
+            rows="3"
+            [value]="additionalExcludedDirectories()"
+            placeholder="One directory name per line, for example: generated"
+            (input)="additionalExcludedDirectories.set($any($event.target).value)"
+          ></textarea>
+
+          <label for="extra-ignore-patterns">Additional ignore patterns</label>
+          <textarea
+            id="extra-ignore-patterns"
+            rows="3"
+            [value]="additionalIgnorePatterns()"
+            placeholder="One positive, relative pattern per line, for example: reports/**"
+            (input)="additionalIgnorePatterns.set($any($event.target).value)"
+          ></textarea>
+          <p class="field-help">
+            Root <code>.gitignore</code> rules are read first; root
+            <code>.repolensignore</code> rules are applied afterwards and can override them.
+            RepoLens implements a documented glob subset, not every Git ignore edge case. Project
+            negations cannot override mandatory, sensitive-default, or additional user exclusions.
+          </p>
+        </details>
+
+        <label class="sensitive-toggle">
+          <input
+            type="checkbox"
+            [checked]="includeSensitiveFiles()"
+            [disabled]="scanning() || current.status === 'unavailable'"
+            (change)="setSensitiveFileInclusion($any($event.target).checked)"
+          />
+          <span>Include files normally excluded as sensitive</span>
+        </label>
+        @if (includeSensitiveFiles()) {
+          <div class="sensitive-risk" role="alert">
+            <strong>Risk: sensitive paths may contain credentials or private keys.</strong>
+            RepoLens does not display file contents, but file paths and SHA-256 digests will be
+            present in this scan result. Continue only if you understand this risk.
+            <label class="acknowledge-toggle">
+              <input
+                type="checkbox"
+                [checked]="acknowledgeSensitiveFileRisk()"
+                [disabled]="scanning()"
+                (change)="acknowledgeSensitiveFileRisk.set($any($event.target).checked)"
+              />
+              <span>I understand and want to include these sensitive paths for this scan.</span>
+            </label>
+          </div>
+        }
+
+        <div class="scan-actions">
+          <button
+            type="button"
+            class="button-primary"
+            [disabled]="
+              current.status === 'unavailable' ||
+              scanning() ||
+              scanLoading() ||
+              (includeSensitiveFiles() && !acknowledgeSensitiveFileRisk())
+            "
+            (click)="startScan()"
+          >
+            {{ scanning() ? 'Scanning…' : scanLoading() ? 'Loading history…' : 'Start scan' }}
+          </button>
+          @if (scanning() && scanningProjectId() === current.id) {
+            <button
+              type="button"
+              class="button-secondary"
+              [disabled]="activeScanId() === null || cancellingScan()"
+              (click)="cancelScan()"
+            >
+              {{ cancellingScan() ? 'Cancelling…' : 'Cancel scan' }}
+            </button>
+          }
+        </div>
+
+        @if (scanning() && scanningProjectId() !== current.id) {
+          <p class="scan-running-note" role="status">
+            A scan for another registered project is still running. You can start this scan when it
+            finishes.
+          </p>
+        }
+
+        @if (scanning() && scanningProjectId() === current.id) {
+          <div class="progress-panel" role="status" aria-live="polite">
+            <div class="progress-heading">
+              <strong>
+                {{ scanProgress() ? phaseLabel(scanProgress()!.phase) : 'Preparing the scanner' }}
+              </strong>
+              <span>
+                {{ scanProgress()?.filesProcessed ?? 0 }} processed ·
+                {{ scanProgress()?.filesDiscovered ?? 0 }} discovered
+              </span>
+            </div>
+            <div
+              class="progress-track"
+              role="progressbar"
+              aria-label="Repository scan progress"
+              [attr.aria-valuemin]="0"
+              [attr.aria-valuemax]="100"
+              [attr.aria-valuenow]="scanProgress() ? progressPercent(scanProgress()!) : null"
+            >
+              @if (scanProgress() && progressPercent(scanProgress()!) !== null) {
+                <span [style.width.%]="progressPercent(scanProgress()!) ?? 0"></span>
+              } @else {
+                <span class="progress-indeterminate"></span>
+              }
+            </div>
+            @if (scanProgress()?.currentPath; as path) {
+              <p class="current-path">{{ path }}</p>
+            }
+            @if (scanProgress(); as progress) {
+              <p class="progress-details">
+                {{ progress.directoriesProcessed }} directories ·
+                {{ formatBytes(progress.totalBytesProcessed) }} hashed
+              </p>
+            }
+          </div>
+        }
+
+        @if (scanError()) {
+          <div class="scan-alert" role="status">{{ scanError() }}</div>
+        }
+
+        @if (currentScan(); as scan) {
+          <section class="latest-scan" aria-labelledby="latest-scan-heading">
+            <div class="card-heading compact-heading">
+              <div>
+                <p class="eyebrow">LATEST RESULT</p>
+                <h3 id="latest-scan-heading">
+                  {{
+                    scan.status === 'completed'
+                      ? 'Scan completed'
+                      : scan.status === 'cancelled'
+                        ? 'Scan cancelled'
+                        : 'Scan failed'
+                  }}
+                </h3>
+              </div>
+              <time [attr.datetime]="scan.completedAt">{{
+                scan.completedAt | date: 'medium'
+              }}</time>
+            </div>
+            <div class="scan-metrics">
+              <div>
+                <strong>{{ scan.filesDiscovered }}</strong><span>files discovered</span>
+              </div>
+              <div>
+                <strong>{{ scan.sourceFiles }}</strong><span>source files</span>
+              </div>
+              <div>
+                <strong>{{ scan.configurationFiles }}</strong><span>configuration</span>
+              </div>
+              <div>
+                <strong>{{ scan.packageManifests }}</strong><span>package manifests</span>
+              </div>
+              <div>
+                <strong>{{ formatBytes(scan.bytesHashed) }}</strong><span>bytes hashed</span>
+              </div>
+              <div>
+                <strong>{{ scan.sensitiveEntriesExcluded }}</strong><span
+                  >sensitive entries skipped</span
+                >
+              </div>
+            </div>
+
+            @if (scan.languages.length) {
+              <div class="result-group">
+                <h4>Languages</h4>
+                <ul class="tag-list">
+                  @for (language of scan.languages; track language.name) {
+                    <li>
+                      {{ language.name }} <span>{{ language.fileCount }} files</span>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (scan.technologies.length) {
+              <div class="result-group">
+                <h4>Technology evidence</h4>
+                <ul class="technology-list">
+                  @for (technology of scan.technologies; track technology.name) {
+                    <li>
+                      <strong>{{ technology.name }}</strong>
+                      <span
+                        >{{ technology.category }} · {{ technology.certainty }} ·
+                        {{ technology.confidence }} confidence</span
+                      >
+                      <small>{{ technology.evidence.join(', ') }}</small>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (scan.errorSummary) {
+              <p class="scan-alert" role="alert">{{ scan.errorSummary }}</p>
+            }
+            @if (scan.warnings.length) {
+              <details class="result-warnings">
+                <summary>{{ scan.warnings.length }} scan warnings</summary>
+                <ul>
+                  @for (warning of scan.warnings; track $index) {
+                    <li>
+                      {{ warning.message }}
+                      @if (warning.relativePath) {
+                        <code>{{ warning.relativePath }}</code>
+                      }
+                    </li>
+                  }
+                </ul>
+              </details>
+            }
+
+            @if (scan.files.length) {
+              <details class="file-results">
+                <summary>File inventory and SHA-256 results ({{ scan.files.length }})</summary>
+                <div class="file-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Path</th>
+                        <th>Classification</th>
+                        <th>Language</th>
+                        <th>Size</th>
+                        <th>Modified</th>
+                        <th>SHA-256</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (file of scan.files.slice(0, 50); track file.relativePath) {
+                        <tr>
+                          <td>
+                            <code>{{ file.relativePath }}</code>
+                          </td>
+                          <td>{{ file.classification }}</td>
+                          <td>{{ file.language ?? '—' }}</td>
+                          <td>{{ formatBytes(file.sizeBytes) }}</td>
+                          <td>{{ file.modifiedAt | date: 'short' }}</td>
+                          <td>
+                            <code title="{{ file.sha256 ?? file.hashStatus }}">{{
+                              shortHash(file)
+                            }}</code>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                @if (scan.files.length > 50) {
+                  <p class="field-help">
+                    Showing the first 50 of {{ scan.files.length }} files. The complete result
+                    remains in memory while this project page is open.
+                  </p>
+                }
+              </details>
+            }
+          </section>
+        } @else if (latestScan(); as latest) {
+          <section class="latest-scan" aria-labelledby="latest-scan-heading">
+            <div class="card-heading compact-heading">
+              <div>
+                <p class="eyebrow">LATEST SAVED SUMMARY</p>
+                <h3 id="latest-scan-heading">
+                  {{
+                    latest.status === 'completed'
+                      ? 'Scan completed'
+                      : latest.status === 'cancelled'
+                        ? 'Scan cancelled'
+                        : 'Scan failed'
+                  }}
+                </h3>
+              </div>
+              <time [attr.datetime]="latest.completedAt">{{
+                latest.completedAt | date: 'medium'
+              }}</time>
+            </div>
+            <div class="scan-metrics">
+              <div>
+                <strong>{{ latest.filesDiscovered }}</strong><span>files discovered</span>
+              </div>
+              <div>
+                <strong>{{ latest.sourceFiles }}</strong><span>source files</span>
+              </div>
+              <div>
+                <strong>{{ latest.configurationFiles }}</strong><span>configuration</span>
+              </div>
+              <div>
+                <strong>{{ latest.packageManifests }}</strong><span>package manifests</span>
+              </div>
+              <div>
+                <strong>{{ formatBytes(latest.bytesHashed) }}</strong><span>bytes hashed</span>
+              </div>
+              <div>
+                <strong>{{ latest.sensitiveEntriesExcluded }}</strong><span
+                  >sensitive entries skipped</span
+                >
+              </div>
+            </div>
+            @if (latest.languages.length) {
+              <div class="result-group">
+                <h4>Languages</h4>
+                <ul class="tag-list">
+                  @for (language of latest.languages; track language.name) {
+                    <li>
+                      {{ language.name }} <span>{{ language.fileCount }} files</span>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (latest.technologies.length) {
+              <div class="result-group">
+                <h4>Technology evidence</h4>
+                <ul class="technology-list">
+                  @for (technology of latest.technologies; track technology.name) {
+                    <li>
+                      <strong>{{ technology.name }}</strong>
+                      <span
+                        >{{ technology.category }} · {{ technology.certainty }} ·
+                        {{ technology.confidence }} confidence</span
+                      >
+                      <small>{{ technology.evidence.join(', ') }}</small>
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+            @if (latest.errorSummary) {
+              <p class="scan-alert" role="alert">{{ latest.errorSummary }}</p>
+            }
+          </section>
+        } @else if (!scanLoading()) {
+          <p class="scan-empty">
+            Not scanned yet. Start a scan to discover local project metadata.
+          </p>
+        }
+
+        <section class="history-section" aria-labelledby="history-heading">
+          <div class="history-heading">
+            <div>
+              <p class="eyebrow">LOCAL HISTORY</p>
+              <h3 id="history-heading">Recent scans</h3>
+            </div>
+            @if (scanLoading()) {
+              <span class="field-help">Loading…</span>
+            }
+          </div>
+          @if (scanHistory().length) {
+            <ol class="history-list">
+              @for (item of scanHistory(); track item.id) {
+                <li>
+                  <div class="history-title">
+                    <strong [class.history-failed]="item.status === 'failed'">{{
+                      item.status
+                    }}</strong>
+                    <time [attr.datetime]="item.completedAt">{{
+                      item.completedAt | date: 'short'
+                    }}</time>
+                  </div>
+                  <p>
+                    {{ item.filesDiscovered }} files · {{ item.sourceFiles }} source ·
+                    {{ formatBytes(item.bytesHashed) }} hashed
+                  </p>
+                </li>
+              }
+            </ol>
+          } @else if (!scanLoading()) {
+            <p class="field-help">No saved scan history for this project.</p>
+          }
+          <p class="history-retention">
+            The current scan's file inventory and hashes remain in memory while this project page is
+            open. Saved history contains bounded project summaries only; it does not retain file
+            inventories, hashes, or file contents.
+          </p>
+        </section>
       </section>
     </div>
 

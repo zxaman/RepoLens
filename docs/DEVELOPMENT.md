@@ -29,7 +29,9 @@ npm run format
 npm run clean
 ```
 
-`npm run build` builds shared packages first, then the CLI and desktop. `npm run test` runs Vitest for Node packages and Electron IPC plus Angular's unit-test builder for renderer tests. `npm run typecheck` builds package declarations before checking consumers and the Angular templates.
+`npm run build` builds shared packages first, then the CLI and desktop. `npm run test` runs Vitest for Node packages and Electron IPC plus Angular's unit-test builder for renderer tests. Scanner tests use only `fixtures/scanner/basic/` and a virtualized boundary fixture; they do not scan arbitrary developer directories. `npm run typecheck` builds package declarations before checking consumers and the Angular templates.
+
+The reusable scanner lives in `packages/core/src/scanner`; Electron's worker and Node filesystem adapter live under `apps/desktop/electron/services`. To add a capability, keep core independent of Electron/Angular and pass filesystem operations through `ScanFileSystem`. See [Scanner](SCANNING.md) for current ignore support, configuration, limits, and persistence semantics.
 
 ## Formatting and validation
 

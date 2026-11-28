@@ -11,7 +11,7 @@ export function registerValidatedHandler<TPayload, TResult>(
   channel: IpcChannel,
   senderGuard: IpcSenderGuard,
   payloadSchema: z.ZodType<TPayload>,
-  handler: (payload: TPayload) => TResult | Promise<TResult>,
+  handler: (payload: TPayload, event: IpcMainInvokeEvent) => TResult | Promise<TResult>,
   invalidPayloadResult?: (error: AppError) => TResult,
 ): void {
   ipcMain.handle(channel, async (event, ...args) => {
@@ -27,7 +27,7 @@ export function registerValidatedHandler<TPayload, TResult>(
     }
 
     const parsedPayload = payloadSchema.parse(validation.data);
-    return handler(parsedPayload);
+    return handler(parsedPayload, event);
   });
 }
 

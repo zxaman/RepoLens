@@ -1,6 +1,6 @@
 import { DEFAULT_APP_SETTINGS, type RepoLensAPI } from '@repolens/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { IPC_CHANNELS } from './security/ipc-channels.js';
+import { IPC_CHANNELS, IPC_EVENTS } from './security/ipc-channels.js';
 
 const electronMocks = vi.hoisted(() => {
   const exposedWorld = new Map<string, unknown>();
@@ -10,6 +10,8 @@ const electronMocks = vi.hoisted(() => {
     confirmBeforeRemovingProject: true,
     recentProjectsLimit: 10,
   };
+  const eventListeners = new Map<string, (...args: unknown[]) => void>();
+  const removeListener = vi.fn((channel: string) => eventListeners.delete(channel));
   const invoke = vi.fn(async (channel: string, ...args: unknown[]): Promise<unknown> => {
     if (channel === 'app:get-version') {
       return '0.2.0';
@@ -32,7 +34,7 @@ const electronMocks = vi.hoisted(() => {
     };
   });
 
-  return { exposedWorld, invoke, defaultSettings };
+  return { exposedWorld, invoke, defaultSettings, eventListeners, removeListener };
 });
 
 vi.mock('electron', () => ({
@@ -41,6 +43,10 @@ vi.mock('electron', () => ({
   },
   ipcRenderer: {
     invoke: electronMocks.invoke,
+    on: (channel: string, listener: (...args: unknown[]) => void) => {
+      electronMocks.eventListeners.set(channel, listener);
+    },
+    removeListener: electronMocks.removeListener,
   },
 }));
 
@@ -101,5 +107,34 @@ describe('secure preload bridge', () => {
       id: 'a1b2c3d4-e5f6-47a8-9012-abcdef123456',
     });
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.settingsUpdate, settings);
+  });
+
+  it('subscribes to validated progress events and returns a cleanup function', () => {
+    const api = electronMocks.exposedWorld.get('repolens') as RepoLensAPI;
+    const callback = vi.fn();
+    const unsubscribe = api.scans.onProgress(callback);
+    const listener = electronMocks.eventListeners.get(IPC_EVENTS.scansProgress);
+    const progress = {
+      scanId: '92370c1b-8755-4057-ae23-0d885ad4d94b',
+      projectId: 'a1b2c3d4-e5f6-47a8-9012-abcdef123456',
+      phase: 'walking',
+      filesDiscovered: 3,
+      filesProcessed: 0,
+      directoriesProcessed: 1,
+      totalBytesProcessed: 0,
+    };
+
+    expect(listener).toBeDefined();
+    listener?.({}, progress);
+    listener?.({}, { ...progress, currentPath: '../outside' });
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledWith(progress);
+
+    unsubscribe();
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(
+      IPC_EVENTS.scansProgress,
+      expect.any(Function),
+    );
+    expect(electronMocks.eventListeners.has(IPC_EVENTS.scansProgress)).toBe(false);
   });
 });

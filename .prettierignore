@@ -4,4 +4,5 @@ node_modules/
 **/out-tsc/
 **/coverage/
 .angular/
+fixtures/
 package-lock.json

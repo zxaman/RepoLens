@@ -1,6 +1,6 @@
-# Project management (v0.2.0)
+# Project management (v0.2.0 foundation)
 
-v0.2.0 provides a local project-registration lifecycle. A registered folder is a reference in RepoLens application data; it is not copied, indexed, scanned, or changed. Repository analysis and scan metrics are not implemented.
+This document describes the local project-registration lifecycle introduced in v0.2.0. A registered folder is a reference in RepoLens application data; import and metadata refresh do not scan or change it. Phase 3 adds an explicit scanner action on project details; its behavior, privacy limits, ignore semantics, and persistent history are documented in [Scanner](SCANNING.md).
 
 ## Import lifecycle
 
@@ -32,10 +32,10 @@ Each project is checked against the shared Zod `projectSchema` and includes an I
 
 - **List / welcome:** projects are loaded from the registry and ordered by recent open time, then creation time. The welcome page shows up to the configured recent-project limit.
 - **Open / switch:** selecting a registered project makes it active and records `lastOpenedAt`. An unavailable folder cannot be activated.
-- **Details:** shows only persisted registration metadata and current folder availability. Its scan panel always says “Not scanned yet.”
+- **Details:** shows persisted registration metadata and current folder availability, plus the explicit Phase 3 scan controls, latest result, and per-project history. Full per-file metadata/hashes are available only for the current page session; saved history is summary-only.
 - **Refresh:** revalidates folder access and refreshes the display name and optional marker metadata. It does not traverse the folder or inspect source files.
 - **Unavailable folders:** a missing or inaccessible folder changes its status to unavailable; the registration stays in the registry until the user removes it.
-- **Remove:** deletes only the RepoLens record (and clears active/default references where applicable). It never calls a recursive delete on the selected repository.
+- **Remove:** deletes the RepoLens registration and that project's scan-history summaries (and clears active/default references where applicable). A removal is rejected while that project's scan is running. It never calls a recursive delete on the selected repository.
 
 ## Settings
 
@@ -56,8 +56,8 @@ The current release is JSON-backed. SQLite/Drizzle schema, database driver, migr
 
 ## Renderer and IPC boundary
 
-The standalone Angular screens are routed at `/welcome`, `/projects`, `/projects/:projectId`, and `/settings`. Renderer services use only the approved `window.repolens` API. Electron owns folder picking, path validation, registry/settings reads and writes, and active-project state. Shared Zod contracts validate requests/responses across IPC; sender, channel, and payload checks are enforced in the main process. The scan-status IPC remains explicitly `NOT_IMPLEMENTED`.
+The standalone Angular screens are routed at `/welcome`, `/projects`, `/projects/:projectId`, and `/settings`. Renderer services use only the approved `window.repolens` API. Electron owns folder picking, path validation, registry/settings/history reads and writes, and scan worker lifecycle. Shared Zod contracts validate requests, scan configuration, results, and progress across IPC; sender, channel, and payload checks are enforced in the main process. See [IPC architecture](IPC_ARCHITECTURE.md) for the validated start/cancel/history API.
 
 ## Explicit non-goals
 
-v0.2.0 does not recursively scan folders, read source contents, detect languages/frameworks, parse ASTs, analyze dependencies, generate charts, install dependencies, execute scripts, initialize Git, upload source, use AI, write into imported repositories, export bundles, or use SQLite. Those features belong to later milestones and require their own contracts, security review, implementation, and tests.
+Project registration itself still does not recursively scan folders or read marker contents. The explicit Phase 3 scanner performs iterative discovery, classification, extension-based language statistics, allowlisted package/config evidence checks, and SHA-256 hashing. Ignore files and package manifests are capped at 1 MiB each, and hashing has a configurable per-file limit; there is not yet a total file/directory-count limit. Scanning does not execute scripts, install dependencies, initialize Git, modify/upload the repository, parse ASTs/symbols, construct dependency graphs, analyze APIs/models, export bundles, use AI, or use SQLite. See [Scanner](SCANNING.md) for the current ignore/sensitive-file limits and the remaining later-phase work.

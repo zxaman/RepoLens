@@ -23,5 +23,37 @@ export {
   resultSchema,
   successResult,
 } from './schemas/result.schema.js';
-export type { ScanStatus, ScanSummary } from './schemas/scan.schema.js';
-export { scanStatusSchema, scanSummarySchema } from './schemas/scan.schema.js';
+export type {
+  ScanClassification,
+  ScanConfig,
+  ScanError,
+  ScanFile,
+  ScanHashStatus,
+  ScanHistoryItem,
+  ScanLanguageStat,
+  ScanPhase,
+  ScanProgress,
+  ScanResult,
+  ScanStatus,
+  ScanSummary,
+  ScanTechnology,
+  ScanWarning,
+} from './schemas/scan.schema.js';
+export {
+  DEFAULT_EXCLUDED_DIRECTORIES,
+  DEFAULT_SCAN_CONFIG,
+  scanClassificationSchema,
+  scanConfigSchema,
+  scanErrorSchema,
+  scanFileSchema,
+  scanHashStatusSchema,
+  scanHistoryItemSchema,
+  scanLanguageStatSchema,
+  scanPhaseSchema,
+  scanProgressSchema,
+  scanResultSchema,
+  scanStatusSchema,
+  scanSummarySchema,
+  scanTechnologySchema,
+  scanWarningSchema,
+} from './schemas/scan.schema.js';

@@ -5,7 +5,8 @@ import type {
   ProjectImportResult,
   RepoLensAPI,
   Result,
-  ScanSummary,
+  ScanHistoryItem,
+  ScanResult,
 } from '@repolens/shared';
 import { DEFAULT_APP_SETTINGS } from '@repolens/shared';
 import { TestBed } from '@angular/core/testing';
@@ -18,7 +19,10 @@ import { routes } from './app.routes';
 function notImplemented<T>(): Promise<Result<T>> {
   return Promise.resolve({
     ok: false,
-    error: { code: 'NOT_IMPLEMENTED', message: 'This operation is not available in Phase 2.' },
+    error: {
+      code: 'NOT_IMPLEMENTED',
+      message: 'This operation is not implemented in the test mock.',
+    },
   });
 }
 
@@ -60,7 +64,11 @@ function createTestBridge(
       refresh: () => notImplemented<Project>(),
     },
     scans: {
-      getStatus: () => notImplemented<ScanSummary | null>(),
+      start: () => notImplemented<ScanResult>(),
+      cancel: () => notImplemented<{ readonly cancelled: true }>(),
+      onProgress: () => () => undefined,
+      getHistory: () => success<readonly ScanHistoryItem[]>([]),
+      getLatest: () => success<ScanHistoryItem | null>(null),
     },
     settings: {
       get: () => success<AppSettings>({ ...settings }),

@@ -1,4 +1,4 @@
-import type { AppSettings } from '@repolens/shared';
+import type { AppSettings, ScanConfig } from '@repolens/shared';
 
 export const IPC_CHANNELS = {
   appGetVersion: 'app:get-version',
@@ -12,18 +12,31 @@ export const IPC_CHANNELS = {
   projectsSetActive: 'projects:set-active',
   projectsRemove: 'projects:remove',
   projectsRefresh: 'projects:refresh',
-  scansGetStatus: 'scans:get-status',
+  scansStart: 'scans:start',
+  scansCancel: 'scans:cancel',
+  scansGetHistory: 'scans:get-history',
+  scansGetLatest: 'scans:get-latest',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsReset: 'settings:reset',
 } as const;
 
+export const IPC_EVENTS = {
+  scansProgress: 'scans:progress',
+} as const;
+
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
+export type IpcEventChannel = (typeof IPC_EVENTS)[keyof typeof IPC_EVENTS];
 
 const approvedChannels: ReadonlySet<string> = new Set(Object.values(IPC_CHANNELS));
+const approvedEventChannels: ReadonlySet<string> = new Set(Object.values(IPC_EVENTS));
 
 export function isAllowedIpcChannel(channel: string): channel is IpcChannel {
   return approvedChannels.has(channel);
+}
+
+export function isAllowedIpcEventChannel(channel: string): channel is IpcEventChannel {
+  return approvedEventChannels.has(channel);
 }
 
 export interface IpcPayloadByChannel {
@@ -38,7 +51,10 @@ export interface IpcPayloadByChannel {
   [IPC_CHANNELS.projectsSetActive]: { readonly id: string };
   [IPC_CHANNELS.projectsRemove]: { readonly id: string };
   [IPC_CHANNELS.projectsRefresh]: { readonly id: string };
-  [IPC_CHANNELS.scansGetStatus]: undefined;
+  [IPC_CHANNELS.scansStart]: { readonly projectId: string; readonly config?: ScanConfig };
+  [IPC_CHANNELS.scansCancel]: { readonly scanId: string };
+  [IPC_CHANNELS.scansGetHistory]: { readonly projectId: string };
+  [IPC_CHANNELS.scansGetLatest]: { readonly projectId: string };
   [IPC_CHANNELS.settingsGet]: undefined;
   [IPC_CHANNELS.settingsUpdate]: AppSettings;
   [IPC_CHANNELS.settingsReset]: undefined;
