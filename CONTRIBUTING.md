@@ -7,7 +7,7 @@ Thanks for your interest in RepoLens. The project is under active development; t
 1. Install Node.js `>=22.12.0` and npm 10 or newer.
 2. Clone the repository and run `npm install`.
 3. Run `npm run build`, `npm run test`, `npm run lint`, and `npm run typecheck` before submitting changes.
-4. Use `npm run dev:web` for the renderer or `npm run dev:desktop` for the Electron development shell. Electron requires a graphical session.
+4. Run `ng serve` from the repository root for the renderer (`npm start` is an equivalent alias), or use `npm run dev:desktop` for the Electron development shell. Electron requires a graphical session.
 
 ## Contribution expectations
 

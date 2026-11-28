@@ -10,10 +10,10 @@
 ## Start the renderer
 
 ```bash
-npm run dev:web
+ng serve
 ```
 
-This starts Angular's development server on port 4200. It is a renderer-only preview; the Electron preload bridge is not available in a normal browser.
+Run this from the repository root. `npm start` (or `npm run dev:web`) is an optional alias for the same Angular CLI command. The Angular workspace is configured at the repository root, and the renderer resolves `@repolens/shared` directly from its workspace source, so no separate shared-package build is needed first. The server listens on port 4200. It is a renderer-only preview; the Electron preload bridge is not available in a normal browser.
 
 ## Start the desktop shell
 

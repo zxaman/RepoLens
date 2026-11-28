@@ -5,6 +5,10 @@
     "target": "ES2022",
     "module": "preserve",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@repolens/shared": ["../../packages/shared/src/index.ts"]
+    },
     "lib": ["ES2022", "DOM"],
     "types": [],
     "experimentalDecorators": true,
