@@ -20,6 +20,7 @@ const outsideFixture = fileURLToPath(
 );
 
 class FixtureFileSystem implements ScanFileSystem {
+  readonly visitedDirectories: string[] = [];
   private readonly outsideLink = join(fixtureRoot, 'outside-link.ts');
   private readonly cycleLink = join(fixtureRoot, 'src-loop');
   private readonly secretAlias = join(fixtureRoot, 'src', 'sensitive-alias.ts');
@@ -49,6 +50,7 @@ class FixtureFileSystem implements ScanFileSystem {
   }
 
   async readdir(path: string): Promise<readonly string[]> {
+    this.visitedDirectories.push(path);
     const entries = await readdir(path, { encoding: 'utf8' });
     if (resolve(path) === resolve(fixtureRoot)) {
       return [...entries, 'outside-link.ts', 'src-loop'];
@@ -154,11 +156,12 @@ class FixtureWithoutIgnoreFiles extends FixtureFileSystem {
 describe('scanner service with the checked-in scanner fixture', () => {
   it('discovers, safely filters, classifies, hashes, and detects evidence without reading secrets', async () => {
     const progressEvents: string[] = [];
+    const fileSystem = new FixtureFileSystem();
     const result = await scanProject({
       projectId: '92370c1b-8755-4057-ae23-0d885ad4d94b',
       rootPath: fixtureRoot,
       config: scanConfigSchema.parse({ excludePatterns: ['config/**/always.exclude'] }),
-      fileSystem: new FixtureFileSystem(),
+      fileSystem,
       onProgress: (progress) => progressEvents.push(progress.phase),
       now: () => new Date('2026-11-27T00:00:00.000Z'),
     });
@@ -170,6 +173,11 @@ describe('scanner service with the checked-in scanner fixture', () => {
       extension: '.ts',
       language: 'TypeScript',
       hashStatus: 'hashed',
+    });
+    expect(files.get('src/keep.js')).toMatchObject({
+      classification: 'source',
+      extension: '.js',
+      language: 'JavaScript',
     });
     expect(files.get('package.json')).toMatchObject({
       classification: 'package-manifest',
@@ -188,6 +196,13 @@ describe('scanner service with the checked-in scanner fixture', () => {
     expect(files.has('dist/generated.js')).toBe(false);
     expect(files.has('node_modules/demo/index.js')).toBe(false);
     expect(files.has('vendor/tool.js')).toBe(false);
+    expect(files.has('src/generated.bundle.js')).toBe(false);
+    expect(files.has('android/app/src/main/assets/public/chunk-abc123.js')).toBe(false);
+    expect(
+      fileSystem.visitedDirectories.some(
+        (path) => path === join(fixtureRoot, 'android', 'app', 'src', 'main', 'assets', 'public'),
+      ),
+    ).toBe(false);
     expect(files.has('config/force-exclude/always.exclude')).toBe(false);
     expect(files.has('credentials.json')).toBe(false);
     expect(files.has('.env.production')).toBe(false);
@@ -206,7 +221,7 @@ describe('scanner service with the checked-in scanner fixture', () => {
       expect.arrayContaining(['Node.js', 'React', 'Express', 'TypeScript', 'Vite']),
     );
     expect(result.languages.map((language) => language.name)).toEqual(
-      expect.arrayContaining(['TypeScript', 'JSON', 'Markdown']),
+      expect.arrayContaining(['TypeScript', 'JavaScript', 'JSON', 'Markdown']),
     );
     expect(result.bytesHashed).toBe(
       result.files.reduce(

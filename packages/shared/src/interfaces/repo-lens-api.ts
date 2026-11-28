@@ -5,6 +5,8 @@ import type {
   GraphCycleReport,
   GraphDependencyQuery,
   GraphGenerationReport,
+  GraphNeighborhoodQuery,
+  GraphNeighborhoodResult,
   GraphNodeQuery,
   GraphNodeQueryResult,
   GraphPathQuery,
@@ -63,6 +65,10 @@ export interface RepoLensAPI {
     ): Promise<Result<GraphGenerationReport>>;
     summary(projectId: string): Promise<Result<GraphSummary | null>>;
     query(projectId: string, query: GraphNodeQuery): Promise<Result<GraphNodeQueryResult | null>>;
+    neighborhood(
+      projectId: string,
+      query: GraphNeighborhoodQuery,
+    ): Promise<Result<GraphNeighborhoodResult | null>>;
     dependencies(
       projectId: string,
       query: GraphDependencyQuery,

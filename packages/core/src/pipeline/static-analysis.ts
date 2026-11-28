@@ -37,6 +37,8 @@ export const STATIC_ANALYSIS_LIMITS = Object.freeze({
   maxTsconfigBytes: 512 * 1_024,
   maxTotalTsconfigBytes: 4 * 1_048_576,
   maxTsconfigBaseUrlLength: 1_024,
+  maxTsconfigExtendsPathLength: 1_024,
+  maxTsconfigExtendsDepth: 16,
   maxTsconfigPathMappings: 256,
 });
 
@@ -81,9 +83,19 @@ interface ParsedFileResult {
   readonly parsed: ParsedSourceFile;
 }
 
+interface EffectivePathMapping extends ParsedPathMapping {
+  readonly baseDirectory: string;
+}
+
+interface EffectiveResolution {
+  readonly baseUrl?: string;
+  readonly paths: readonly EffectivePathMapping[];
+}
+
 interface ConfigRecord {
   readonly path: string;
   readonly resolution: ParsedResolutionConfig | null;
+  readonly effectiveResolution?: EffectiveResolution;
 }
 
 interface ResolvedDependency {
@@ -191,6 +203,13 @@ export async function analyzeScan(options: AnalyzeScanOptions): Promise<Analysis
     emitProgress,
   );
   const configByPath = new Map(configs.map((config) => [config.path, config]));
+  const configByDirectory = new Map<string, ConfigRecord[]>();
+  for (const config of configs) {
+    const directory = dirname(config.path);
+    const siblings = configByDirectory.get(directory) ?? [];
+    siblings.push(config);
+    configByDirectory.set(directory, siblings);
+  }
 
   const boundedFiles = selectedFiles;
   if (selectedFileCount > boundedFiles.length) {
@@ -386,7 +405,17 @@ export async function analyzeScan(options: AnalyzeScanOptions): Promise<Analysis
   const exportedSymbolIds = new Set<string>();
   let importBindingCount = 0;
   let exportSymbolLinkCount = 0;
-  const knownPaths = new Set(scan.files.map((file) => file.relativePath));
+  const knownPaths = new Set(
+    scan.files
+      .filter(
+        (file) =>
+          (file.classification === 'source' &&
+            file.language !== null &&
+            SOURCE_EXTENSIONS.has(file.extension.toLowerCase())) ||
+          (file.extension.toLowerCase() === '.json' && file.language === 'JSON'),
+      )
+      .map((file) => file.relativePath),
+  );
   let outputLimitReported = false;
 
   const reportOutputLimit = (filePath?: string): void => {
@@ -440,6 +469,9 @@ export async function analyzeScan(options: AnalyzeScanOptions): Promise<Analysis
         kind: parsedSymbol.kind,
         location: parsedSymbol.location,
         ...(parentId === undefined ? {} : { parentId }),
+        ...(parsedSymbol.semanticRole === undefined
+          ? {}
+          : { semanticRole: parsedSymbol.semanticRole }),
         exported: parsedSymbol.exported,
       });
     }
@@ -447,7 +479,7 @@ export async function analyzeScan(options: AnalyzeScanOptions): Promise<Analysis
     const importIdByKey = new Map<string, string>();
     const importIdCounts = new Map<string, number>();
     const dependencyIds = new Set<string>();
-    const fileConfig = findConfigForFile(filePath, configByPath);
+    const fileConfig = findConfigForFile(filePath, configByPath, configByDirectory);
     const reExportImportBySpecifier = new Map<string, ParsedImport>();
     for (const candidate of parsed.imports) {
       if (
@@ -713,7 +745,7 @@ async function loadResolutionConfigs(
   const configFiles: ScanFile[] = [];
   let totalConfigFileCount = 0;
   for (const file of files) {
-    if (file.relativePath !== 'tsconfig.json' && !file.relativePath.endsWith('/tsconfig.json')) {
+    if (!isTypeScriptConfigPath(file.relativePath)) {
       continue;
     }
     totalConfigFileCount += 1;
@@ -873,6 +905,7 @@ async function loadResolutionConfigs(
       }
       totalPathMappings += boundedMappings.length;
       const resolution: ParsedResolutionConfig = {
+        ...(parsed.resolution.extends === undefined ? {} : { extends: parsed.resolution.extends }),
         ...(baseUrl === undefined ? {} : { baseUrl }),
         ...(parsed.resolution.paths === undefined ? {} : { paths: boundedMappings }),
       };
@@ -888,7 +921,153 @@ async function loadResolutionConfigs(
       configs.push({ path: file.relativePath, resolution: null });
     }
   }
-  return configs;
+  return resolveConfigInheritance(configs, addDiagnostic);
+}
+
+function resolveConfigInheritance(
+  configs: readonly ConfigRecord[],
+  addDiagnostic: (diagnostic: AnalysisDiagnostic) => void,
+): ConfigRecord[] {
+  const configByPath = new Map(configs.map((config) => [config.path, config] as const));
+  const stateByPath = new Map<string, 'visiting' | 'resolved' | 'invalid'>();
+  const effectiveByPath = new Map<string, EffectiveResolution>();
+  const reported = new Set<string>();
+
+  const reportConfigIssue = (
+    path: string,
+    code: AnalysisDiagnostic['code'],
+    message: string,
+  ): void => {
+    const key = `${path}:${code}:${message}`;
+    if (reported.has(key)) {
+      return;
+    }
+    reported.add(key);
+    addDiagnostic({ code, severity: 'warning', message, filePath: path });
+  };
+
+  const resolve = (config: ConfigRecord, depth: number): EffectiveResolution | null => {
+    const state = stateByPath.get(config.path);
+    if (state === 'resolved') {
+      return effectiveByPath.get(config.path) ?? null;
+    }
+    if (state === 'invalid') {
+      return null;
+    }
+    if (state === 'visiting') {
+      stateByPath.set(config.path, 'invalid');
+      reportConfigIssue(
+        config.path,
+        'TSCONFIG_EXTENDS_UNSUPPORTED',
+        'A TypeScript configuration extends cycle was detected; inherited aliases were not used.',
+      );
+      return null;
+    }
+
+    stateByPath.set(config.path, 'visiting');
+    const parsedResolution = config.resolution;
+    if (parsedResolution === null) {
+      stateByPath.set(config.path, 'invalid');
+      return null;
+    }
+
+    let inherited: EffectiveResolution | null = null;
+    if (parsedResolution.extends !== undefined) {
+      if (depth >= STATIC_ANALYSIS_LIMITS.maxTsconfigExtendsDepth) {
+        reportConfigIssue(
+          config.path,
+          'TSCONFIG_EXTENDS_UNSUPPORTED',
+          `TypeScript configuration inheritance exceeded the safe depth of ${STATIC_ANALYSIS_LIMITS.maxTsconfigExtendsDepth}; remaining inherited aliases were not used.`,
+        );
+      } else {
+        const parentPath = resolveLocalExtendsPath(config.path, parsedResolution.extends);
+        const parent = parentPath === null ? undefined : configByPath.get(parentPath);
+        if (parent === undefined) {
+          reportConfigIssue(
+            config.path,
+            'TSCONFIG_EXTENDS_UNSUPPORTED',
+            'This TypeScript configuration extends a package, an unsafe path, or a config outside the scanned inventory; inherited aliases were not used.',
+          );
+        } else {
+          inherited = resolve(parent, depth + 1);
+        }
+      }
+    }
+
+    if (stateByPath.get(config.path) === 'invalid') {
+      return null;
+    }
+
+    let baseUrl: string | undefined;
+    if (parsedResolution.baseUrl !== undefined) {
+      baseUrl = toProjectPath(dirname(config.path), parsedResolution.baseUrl) ?? undefined;
+      if (baseUrl === undefined) {
+        reportConfigIssue(
+          config.path,
+          'TSCONFIG_INVALID',
+          'The TypeScript baseUrl resolves outside the scanned project inventory and was ignored.',
+        );
+      }
+    } else {
+      baseUrl = inherited?.baseUrl;
+    }
+
+    const paths =
+      parsedResolution.paths === undefined
+        ? (inherited?.paths ?? [])
+        : parsedResolution.paths.map((mapping) => ({
+            ...mapping,
+            baseDirectory: baseUrl ?? dirname(config.path),
+          }));
+    const effective: EffectiveResolution = {
+      ...(baseUrl === undefined ? {} : { baseUrl }),
+      paths,
+    };
+    stateByPath.set(config.path, 'resolved');
+    effectiveByPath.set(config.path, effective);
+    return effective;
+  };
+
+  const configsByDirectory = new Map<string, ConfigRecord[]>();
+  for (const config of configs) {
+    const directory = dirname(config.path);
+    const siblings = configsByDirectory.get(directory) ?? [];
+    siblings.push(config);
+    configsByDirectory.set(directory, siblings);
+  }
+  for (const [directory, siblings] of configsByDirectory) {
+    const standardPath = directory === '' ? 'tsconfig.json' : `${directory}/tsconfig.json`;
+    if (siblings.length > 1 && !configByPath.has(standardPath)) {
+      reportConfigIssue(
+        siblings[0]?.path ?? standardPath,
+        'TSCONFIG_EXTENDS_UNSUPPORTED',
+        'Multiple specialized TypeScript configurations share a directory; RepoLens did not guess which one applies.',
+      );
+    }
+  }
+
+  return configs.map((config) => {
+    const effectiveResolution = resolve(config, 0);
+    return effectiveResolution === null ? config : { ...config, effectiveResolution };
+  });
+}
+
+function resolveLocalExtendsPath(configPath: string, extendsPath: string): string | null {
+  if (
+    (!extendsPath.startsWith('./') && !extendsPath.startsWith('../')) ||
+    extendsPath.includes('\\')
+  ) {
+    return null;
+  }
+  const candidatePath = extendsPath.toLowerCase().endsWith('.json')
+    ? extendsPath
+    : `${extendsPath}.json`;
+  const resolved = toProjectPath(dirname(configPath), candidatePath);
+  return resolved !== null && isTypeScriptConfigPath(resolved) ? resolved : null;
+}
+
+function isTypeScriptConfigPath(path: string): boolean {
+  return /(^|\/)tsconfig(?:\.[^/]+)?\.json$/i.test(path);
 }
 
 function toAnalysisDiagnostic(filePath: string, diagnostic: ParsedDiagnostic): AnalysisDiagnostic {
@@ -905,13 +1084,21 @@ function toAnalysisDiagnostic(filePath: string, diagnostic: ParsedDiagnostic): A
 function findConfigForFile(
   filePath: string,
   configByPath: ReadonlyMap<string, ConfigRecord>,
-): ConfigRecord | undefined {
+  configByDirectory: ReadonlyMap<string, readonly ConfigRecord[]>,
+): ConfigRecord | null | undefined {
   let directory = dirname(filePath);
   while (true) {
     const candidatePath = directory === '' ? 'tsconfig.json' : `${directory}/tsconfig.json`;
     const config = configByPath.get(candidatePath);
     if (config !== undefined) {
       return config;
+    }
+    const siblings = configByDirectory.get(directory) ?? [];
+    if (siblings.length === 1) {
+      return siblings[0];
+    }
+    if (siblings.length > 1) {
+      return null;
     }
     if (directory === '') {
       return undefined;
@@ -923,7 +1110,7 @@ function findConfigForFile(
 function resolveDependency(
   fromPath: string,
   specifier: string,
-  configRecord: ConfigRecord | undefined,
+  configRecord: ConfigRecord | null | undefined,
   knownPaths: ReadonlySet<string>,
 ): ResolvedDependency {
   if (specifier.length === 0 || specifier.includes('\\')) {
@@ -947,10 +1134,10 @@ function resolveDependency(
     );
   }
 
-  const resolution = configRecord?.resolution ?? null;
-  const configDirectory = configRecord === undefined ? null : dirname(configRecord.path);
-  if (resolution !== null && configDirectory !== null) {
-    const bestMappings: Array<{ readonly mapping: ParsedPathMapping; readonly match: string }> = [];
+  const resolution = configRecord?.effectiveResolution ?? null;
+  if (resolution !== null) {
+    const bestMappings: Array<{ readonly mapping: EffectivePathMapping; readonly match: string }> =
+      [];
     let bestPrefixLength = -1;
     for (const mapping of resolution.paths ?? []) {
       const match = matchPathPattern(mapping.pattern, specifier);
@@ -978,17 +1165,15 @@ function resolveDependency(
       if (bestMapping === undefined) {
         return unresolved('The TypeScript path alias could not be selected safely.');
       }
-      const base = toProjectPath(configDirectory, resolution.baseUrl ?? '.');
-      if (base === null) {
-        return unresolved(
-          'The configured TypeScript path base is outside the project-relative scan inventory.',
-        );
-      }
       for (const target of bestMapping.mapping.targets) {
         const substituted = bestMapping.mapping.pattern.includes('*')
           ? target.replace('*', bestMapping.match)
           : target;
-        const candidate = resolveScannedPath(base, substituted, knownPaths);
+        const candidate = resolveScannedPath(
+          bestMapping.mapping.baseDirectory,
+          substituted,
+          knownPaths,
+        );
         if (candidate.ambiguous) {
           return unresolved(
             'Multiple scanned files match the configured TypeScript path alias; RepoLens did not guess.',
@@ -1004,17 +1189,14 @@ function resolveDependency(
     }
 
     if (resolution.baseUrl !== undefined) {
-      const base = toProjectPath(configDirectory, resolution.baseUrl);
-      if (base !== null) {
-        const resolved = resolveScannedPath(base, specifier, knownPaths);
-        if (resolved.path !== null) {
-          return { kind: 'alias', resolvedPath: resolved.path };
-        }
-        if (resolved.ambiguous) {
-          return unresolved(
-            'Multiple scanned files match this baseUrl module; RepoLens did not guess.',
-          );
-        }
+      const resolved = resolveScannedPath(resolution.baseUrl, specifier, knownPaths);
+      if (resolved.path !== null) {
+        return { kind: 'alias', resolvedPath: resolved.path };
+      }
+      if (resolved.ambiguous) {
+        return unresolved(
+          'Multiple scanned files match this baseUrl module; RepoLens did not guess.',
+        );
       }
     }
   }

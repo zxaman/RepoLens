@@ -1,6 +1,6 @@
 # Phase 5 graph engine
 
-RepoLens Phase 5 includes a reusable Graphology-based, in-memory graph engine in `@repolens/core` plus an explicit graph-generation action on project details. It consumes the shared Phase 4 `AnalysisResult` returned by the real analysis worker; it does not scan or parse source, mock relationships, or infer dependencies from filenames/naming conventions. The UI presents validated graph counts, a bounded page of actual nodes, and cycle paths; a full visualization or Architecture Explorer is not included.
+RepoLens Phase 5 includes a reusable Graphology-based, in-memory graph engine in `@repolens/core` plus an explicit graph-generation action on project details. It consumes the shared Phase 4 `AnalysisResult` returned by the real analysis worker; it does not scan or parse source, mock relationships, or infer dependencies from filenames/naming conventions. After generation the page shows validated graph counts and cycle paths alongside a progressive Cytoscape Architecture Explorer. The renderer never loads the entire graph at once: it starts from a bounded project neighborhood and expands/searches through validated queries.
 
 ## Construction and data model
 
@@ -8,15 +8,17 @@ RepoLens Phase 5 includes a reusable Graphology-based, in-memory graph engine in
 
 The graph schema supports the following node types:
 
-| Node type                                             | Phase 5 construction                                                                                                          |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `project`                                             | One project node, ID `project:<projectId>`.                                                                                   |
-| `folder`                                              | Each parent path derived from a parser-confirmed or relationship-evidenced project-relative path; ID `folder:<relativePath>`. |
-| `file`                                                | Each successfully analyzed source path plus valid resolved relationship endpoints; ID `file:<relativePath>`.                  |
-| `class`                                               | Phase 4 class symbols.                                                                                                        |
-| `function`                                            | Phase 4 functions, methods, constructors, and accessors.                                                                      |
-| `interface`                                           | Phase 4 interface symbols.                                                                                                    |
-| `component`, `service`, `api-route`, `database-model` | Reserved schema types; Phase 4 currently supplies no reliable evidence to create these nodes.                                 |
+| Node type                     | Phase 5 construction                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `project`                     | One project node, ID `project:<projectId>`.                                                                                    |
+| `folder`                      | Each parent path derived from a parser-confirmed or relationship-evidenced project-relative path; ID `folder:<relativePath>`.  |
+| `file`                        | Each successfully analyzed source path plus valid resolved relationship endpoints; ID `file:<relativePath>`.                   |
+| `class`                       | Phase 4 class symbols without a recognized Angular semantic role.                                                              |
+| `component`                   | Phase 4 classes decorated with an imported `Component` from `@angular/core` (including import aliases and namespace imports).  |
+| `service`                     | Phase 4 classes decorated with an imported `Injectable` from `@angular/core` (including import aliases and namespace imports). |
+| `function`                    | Phase 4 functions, methods, constructors, and accessors.                                                                       |
+| `interface`                   | Phase 4 interface symbols.                                                                                                     |
+| `api-route`, `database-model` | Reserved schema types; Phase 4 currently supplies no reliable evidence to create these nodes.                                  |
 
 Symbol node IDs are `symbol:<AnalysisSymbol.id>`. Symbol nodes retain the original symbol kind, name, file path, source location, and exported flag. The engine does not copy source contents into graph metadata. Other Phase 4 symbol kinds are not promoted to graph nodes, and no symbols are inferred from names.
 
@@ -34,7 +36,8 @@ The schemas allow additional edge categories for future evidence sources; their 
 
 A `ProjectGraph` exposes validated plain DTO methods; it keeps the Graphology objects private.
 
-- `queryNodes` filters by node type, case-insensitive name substring, project-relative path prefix, and exported status. Results sort by stable code-point ID order and support pagination (`limit` defaults to 100 and is capped at 1,000).
+- `queryNodes` filters by node type, case-insensitive name substring, project-relative path prefix, and exported status. Results sort by stable code-point ID order and support pagination (`limit` defaults to 100 and is capped at 1,000). Each page includes only relationships whose two endpoints are on that page, capped at 2,000 with an `edgesTruncated` flag.
+- `queryNeighborhood` starts at an existing node and follows directed relationships with `outgoing`, `incoming`, or `both` traversal, optional edge-type filters, depth 1–3, and a result cap of 250 nodes. The result includes the anchor and only real edges whose endpoints are returned, with node/edge truncation flags; edge payloads cap at 2,000.
 - `traverseDependencies` performs cycle-safe breadth-first traversal of resolved local/alias imports. It supports outbound `dependencies` or reverse `dependents`, with depth from 1 to 100. Each file appears once at its shortest distance; results sort by distance then path.
 - `findDependencyPath` returns a shortest directed local-dependency path, or `null` if either file is absent or unreachable. External and unresolved references are excluded from traversal/path algorithms.
 - `getSummary` reports node/edge counts by type plus file/folder/symbol counts, Phase 4 files analyzed, resolved import-edge count, unique directed file-pair count, external/unresolved reference counts, isolated files, average and maximum unique outbound dependencies per file, SCC/cyclic-component counts, and self-loop count.
@@ -49,7 +52,7 @@ An SCC is **not** a single cycle: one strongly connected component can contain m
 
 ## Limits, progress, and cancellation
 
-Shared graph limits are 150,000 nodes, 400,000 edges, 50,000 dependency references, 4,096 characters per normalized project-relative path, and 25,000,000 UTF-8 bytes for JSON export. The engine rejects absolute paths, backslashes, empty/dot/dot-dot path segments, control characters, duplicate conflicting identities, and invalid edge/dependency references.
+Shared graph limits are 150,000 nodes, 400,000 edges, 50,000 dependency references, 4,096 characters per normalized project-relative path, 2,000 relationships per node-query page or neighborhood, 250 nodes and 3 hops per neighborhood, and 25,000,000 UTF-8 bytes for JSON export. The Cytoscape renderer loads at most 600 paged search nodes in one view. The engine rejects absolute paths, backslashes, empty/dot/dot-dot path segments, control characters, duplicate conflicting identities, and invalid edge/dependency references.
 
 `GraphBuildOptions` supports:
 
@@ -66,16 +69,16 @@ On cancellation, core construction throws `GraphBuildCancelledError`; no partial
 
 Analysis results and current scan inventories are retained per project in bounded main-process memory. A separate `GraphManagementService.generate(projectId, scanId, analysisId)` action verifies a registered/available project, its matching current **completed** scan, and the matching schema-valid completed or partial analysis. Partial analysis is supported and produces warnings for skipped files; zero-file, failed, cancelled, stale, or out-of-inventory analysis is reported as a failure and is never built. The action acquires a provider revision lease, reuses the existing core builder, and returns a validated generation report with graph counts, relationship classifications, cycle count, and warnings. A newer analysis invalidates the previous graph; reads also reject graphs whose scan or analysis is no longer current.
 
-Main-process IPC validates every project/scan/analysis ID and sender identity; the preload validates every response/progress payload. Progress is sent only to the renderer that initiated graph generation. The renderer receives only validated DTOs (summary, paginated nodes, cycle reports, and the generation report), never a Graphology instance or unrestricted IPC access.
+Main-process IPC validates every project/scan/analysis ID and sender identity; the preload validates every request and response/progress payload. Progress is sent only to the renderer that initiated graph generation. The renderer receives only validated DTOs (summary, paginated node/edge pages, bounded neighborhoods, cycle reports, and the generation report), never a Graphology instance or unrestricted IPC access.
 
-The narrow `window.repolens.graphs` bridge exposes `generate`, `summary`, `query`, `dependencies`, `shortestPath`, `cycles`, `exportJson`, `dispose`, and `onProgress`. Graph results are not written to scan history, project JSON, settings, SQLite, or any other persistence layer. Closing the app discards all scan inventories, analysis results, and graph data; the in-memory scan/analysis caches retain up to 50 project entries.
+The narrow `window.repolens.graphs` bridge exposes `generate`, `summary`, `query`, `neighborhood`, `dependencies`, `shortestPath`, `cycles`, `exportJson`, `dispose`, and `onProgress`. The Cytoscape UI maps graph IDs to internal element IDs, validates project/edge references, displays real DTOs only, and makes search and neighborhood expansion separate bounded queries. Search pages are capped at 100 nodes per request and 600 nodes per rendered view; neighborhood requests expose depth/direction and edge-type controls. Graph results are not written to scan history, project JSON, settings, SQLite, or any other persistence layer. Closing the app discards all scan inventories, analysis results, and graph data; the in-memory scan/analysis caches retain up to 50 project entries.
 
 ## JSON export and non-goals
 
 `exportJson()` emits deterministic, pretty-printed JSON with schema version `1.0.0`. Nodes, edges, dependencies, and metrics are validated by the shared Zod graph schemas; output is sorted by stable IDs and rejects payloads above the configured size limit. The renderer bridge returns the validated JSON string; there is no file-save UI.
 
-GraphML was not added: Phase 5 needs only a versioned JSON interchange format, and no GraphML serializer/round-trip contract is used by the current application. SQLite/Drizzle graph persistence, incremental indexing, a full graph visualization, CLI graph commands, report/ZIP/SVG/PNG export, change-impact analysis, framework/API/ORM discovery, and AI remain out of scope.
+GraphML was not added: Phase 5 needs only a versioned JSON interchange format, and no GraphML serializer/round-trip contract is used by the current application. SQLite/Drizzle graph persistence, incremental indexing, drawing the entire large graph in one renderer scene, custom advanced graph-layout/analysis features, graph-generation cancellation, CLI graph commands, report/ZIP/SVG/PNG export, change-impact analysis, framework/API/ORM discovery, and AI remain out of scope.
 
 ## Verification
 
-Core construction, duplicate/reference validation, evidence-backed node/edge generation, traversal, shortest paths, query pagination, metrics, SCC/cycle canonicalization/truncation, deterministic JSON export, progress/yield/cancellation, provider replacement/stale leases/cleanup/disposal, shared DTO validation, graph IPC sender guards, bridge payloads, and the full desktop workflow are covered by deterministic tests. Automated workflow tests do not launch Electron's native window or folder picker; see [Project Status](../PROJECT_STATUS.md) for the current verification and manual GUI gap.
+Core construction, duplicate/reference validation, evidence-backed node/edge generation, directional bounded neighborhoods, shortest paths, query-page relationships, metrics, SCC/cycle canonicalization/truncation, deterministic JSON export, progress/yield/cancellation, provider replacement/stale leases/cleanup/disposal, shared DTO validation, graph IPC sender guards, bridge payloads, progressive search paging, and the desktop worker/workflow are covered by deterministic tests. Automated tests do not launch Electron's native window or folder picker; the Cytoscape viewport is compiled and exercised through Angular tests, but the supported-platform visual/native-picker smoke test remains outstanding. See [Project Status](../PROJECT_STATUS.md) for the current verification and GUI gap.

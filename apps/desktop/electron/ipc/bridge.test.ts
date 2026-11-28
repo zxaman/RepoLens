@@ -164,6 +164,9 @@ describe('secure analysis and scan preload APIs', () => {
       api.graphs.query(projectId, { types: ['file'], pathPrefix: 'src', limit: 10 }),
     ).resolves.toEqual({ ok: true, data: null });
     await expect(
+      api.graphs.neighborhood(projectId, { nodeId: `project:${projectId}`, depth: 2 }),
+    ).resolves.toEqual({ ok: true, data: null });
+    await expect(
       api.graphs.dependencies(projectId, {
         relativePath: 'src/index.ts',
         direction: 'dependencies',
@@ -190,6 +193,10 @@ describe('secure analysis and scan preload APIs', () => {
         payload: { projectId, query: { types: ['file'], pathPrefix: 'src', limit: 10 } },
       },
       {
+        channel: IPC_CHANNELS.graphsNeighborhood,
+        payload: { projectId, query: { nodeId: `project:${projectId}`, depth: 2 } },
+      },
+      {
         channel: IPC_CHANNELS.graphsDependencies,
         payload: {
           projectId,
@@ -209,6 +216,18 @@ describe('secure analysis and scan preload APIs', () => {
       invoke: async () => ({ ok: true, data: '{"schemaVersion":"1.0.0"}' }),
     });
     await expect(invalidExportApi.graphs.exportJson(projectId)).rejects.toThrow();
+
+    const invalidNeighborhoodApi = createRepoLensAPI({
+      invoke: async () => ({
+        ok: true,
+        data: { anchorNodeId: `project:${projectId}`, nodes: [], edges: [] },
+      }),
+    });
+    await expect(
+      invalidNeighborhoodApi.graphs.neighborhood(projectId, {
+        nodeId: `project:${projectId}`,
+      }),
+    ).rejects.toThrow();
   });
 
   it('validates progress events, isolates listener errors, and releases the subscription', () => {

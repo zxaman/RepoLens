@@ -7,6 +7,8 @@ import {
   graphExportJsonSchema,
   graphExportSchema,
   graphMetricsSchema,
+  graphNeighborhoodQuerySchema,
+  graphNeighborhoodResultSchema,
   graphNodeQueryResultSchema,
   graphNodeQuerySchema,
   graphNodeSchema,
@@ -18,6 +20,7 @@ import {
   GRAPH_MAX_EDGES,
   GRAPH_MAX_JSON_CHARS,
   GRAPH_MAX_NODES,
+  GRAPH_MAX_QUERY_EDGES,
   graphEdgeSchema,
   graphDependencyReferenceSchema,
   graphEdgeTypeSchema,
@@ -32,6 +35,8 @@ import {
   type GraphEdge,
   type GraphExport,
   type GraphMetrics,
+  type GraphNeighborhoodQuery,
+  type GraphNeighborhoodResult,
   type GraphNode,
   type GraphNodeQuery,
   type GraphNodeQueryResult,
@@ -285,11 +290,136 @@ export class ProjectGraph {
         return true;
       });
 
+    const nodes = matching.slice(options.offset, options.offset + options.limit);
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    const edgeIds = new Set<string>();
+    let edgesTruncated = false;
+    for (const node of nodes) {
+      for (const edgeId of this.graph.edges(node.id)) {
+        if (edgeIds.has(edgeId)) {
+          continue;
+        }
+        const edge = this.graph.getEdgeAttributes(edgeId);
+        if (!nodeIds.has(edge.sourceId) || !nodeIds.has(edge.targetId)) {
+          continue;
+        }
+        if (edgeIds.size >= GRAPH_MAX_QUERY_EDGES) {
+          edgesTruncated = true;
+          break;
+        }
+        edgeIds.add(edgeId);
+      }
+      if (edgesTruncated) {
+        break;
+      }
+    }
+    const edges = [...edgeIds]
+      .sort((left, right) => compareStrings(left, right))
+      .map((edgeId) => getEdgeDto(this.graph, edgeId));
+
     return graphNodeQueryResultSchema.parse({
-      nodes: matching.slice(options.offset, options.offset + options.limit),
+      nodes,
+      edges,
+      edgesTruncated,
       total: matching.length,
       offset: options.offset,
       limit: options.limit,
+    });
+  }
+
+  queryNeighborhood(query: GraphNeighborhoodQuery): GraphNeighborhoodResult | null {
+    const options = graphNeighborhoodQuerySchema.parse(query);
+    if (!this.graph.hasNode(options.nodeId)) {
+      return null;
+    }
+
+    const edgeTypeFilter = options.edgeTypes === undefined ? null : new Set(options.edgeTypes);
+    const selectedNodeIds = new Set<string>([options.nodeId]);
+    const queue: Array<{ readonly nodeId: string; readonly depth: number }> = [
+      { nodeId: options.nodeId, depth: 0 },
+    ];
+    let queueIndex = 0;
+    let nodesTruncated = false;
+
+    while (queueIndex < queue.length) {
+      const current = queue[queueIndex];
+      queueIndex += 1;
+      if (current === undefined || current.depth >= options.depth) {
+        continue;
+      }
+
+      const candidateIds = new Set<string>();
+      const remainingCandidates = Math.max(1, options.limit - selectedNodeIds.size + 1);
+      this.graph.forEachEdge(current.nodeId, (_edgeId, edge, sourceId, targetId) => {
+        if (edgeTypeFilter !== null && !edgeTypeFilter.has(edge.type)) {
+          return;
+        }
+        const canFollowOutgoing =
+          (options.direction === 'both' || options.direction === 'outgoing') &&
+          sourceId === current.nodeId;
+        const canFollowIncoming =
+          (options.direction === 'both' || options.direction === 'incoming') &&
+          targetId === current.nodeId;
+        const neighborId = canFollowOutgoing ? targetId : canFollowIncoming ? sourceId : null;
+        if (neighborId === null || selectedNodeIds.has(neighborId)) {
+          return;
+        }
+        if (candidateIds.has(neighborId)) {
+          return;
+        }
+        if (candidateIds.size < remainingCandidates) {
+          candidateIds.add(neighborId);
+        } else {
+          nodesTruncated = true;
+        }
+      });
+
+      for (const neighborId of [...candidateIds].sort(compareStrings)) {
+        if (selectedNodeIds.size >= options.limit) {
+          nodesTruncated = true;
+          continue;
+        }
+        selectedNodeIds.add(neighborId);
+        queue.push({ nodeId: neighborId, depth: current.depth + 1 });
+      }
+    }
+
+    const nodeIds = [...selectedNodeIds].sort(compareStrings);
+    const nodeIdSet = new Set(nodeIds);
+    const edgeIds = new Set<string>();
+    let edgesTruncated = false;
+    for (const nodeId of nodeIds) {
+      this.graph.forEachEdge(nodeId, (edgeId, edge, sourceId, targetId) => {
+        if (
+          (edgeTypeFilter !== null && !edgeTypeFilter.has(edge.type)) ||
+          edgeIds.has(edgeId) ||
+          !nodeIdSet.has(sourceId) ||
+          !nodeIdSet.has(targetId)
+        ) {
+          return;
+        }
+        if (edgeIds.size < GRAPH_MAX_QUERY_EDGES) {
+          edgeIds.add(edgeId);
+        } else {
+          edgesTruncated = true;
+        }
+      });
+    }
+
+    const nodes = nodeIds.map((nodeId) => getNodeDto(this.graph, nodeId));
+    const edges = [...edgeIds]
+      .sort(compareStrings)
+      .map((edgeId) => getEdgeDto(this.graph, edgeId))
+      .filter((edge) => nodeIdSet.has(edge.sourceId) && nodeIdSet.has(edge.targetId));
+
+    return graphNeighborhoodResultSchema.parse({
+      anchorNodeId: options.nodeId,
+      depth: options.depth,
+      limit: options.limit,
+      nodes,
+      edges,
+      nodesTruncated,
+      edgesTruncated,
     });
   }
 
@@ -683,7 +813,7 @@ export async function buildProjectGraph(
   const graphSymbolIdBySourceId = new Map<string, string>();
   for (const symbol of records.symbols) {
     await context.cooperate(++constructionWork);
-    const type = graphSymbolType(symbol.kind);
+    const type = graphSymbolType(symbol.kind, symbol.semanticRole);
     if (type === null) {
       continue;
     }
@@ -1112,10 +1242,13 @@ function findIncludedSymbolParent(
   return fileId;
 }
 
-function graphSymbolType(kind: AnalysisSymbol['kind']): GraphNode['type'] | null {
+function graphSymbolType(
+  kind: AnalysisSymbol['kind'],
+  semanticRole: AnalysisSymbol['semanticRole'],
+): GraphNode['type'] | null {
   switch (kind) {
     case 'class':
-      return 'class';
+      return semanticRole ?? 'class';
     case 'function':
     case 'method':
     case 'constructor':

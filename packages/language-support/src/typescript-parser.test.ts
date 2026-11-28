@@ -122,7 +122,44 @@ describe('TypeScript Compiler API parser', () => {
     }
   });
 
-  it('reads JSON-with-comments tsconfig baseUrl and paths but declines inherited configs', () => {
+  it('tags Angular components and injectables from their real decorators, including aliases', () => {
+    const parsed = parser.parse(
+      'src/app.component.ts',
+      [
+        "import { Component as NgComponent, Injectable } from '@angular/core';",
+        "import * as ng from '@angular/core';",
+        "import type { Component as TypeOnlyComponent } from '@angular/core';",
+        '@NgComponent({ selector: "app-root", template: "<main />" })',
+        'export class AppComponent {}',
+        '@Injectable({ providedIn: "root" })',
+        'export class UserService {}',
+        '@ng.Component({ selector: "app-dashboard", template: "<main />" })',
+        'export class DashboardComponent {}',
+        '@Component({ selector: "not-angular" })',
+        'export class PlainComponent {}',
+        '@TypeOnlyComponent({ selector: "type-only" })',
+        'export class TypeOnlyComponentClass {}',
+      ].join('\n'),
+    );
+
+    expect(parsed.symbols).toContainEqual(
+      expect.objectContaining({ name: 'AppComponent', kind: 'class', semanticRole: 'component' }),
+    );
+    expect(parsed.symbols).toContainEqual(
+      expect.objectContaining({ name: 'UserService', kind: 'class', semanticRole: 'service' }),
+    );
+    expect(parsed.symbols).toContainEqual(
+      expect.objectContaining({ name: 'DashboardComponent', semanticRole: 'component' }),
+    );
+    expect(
+      parsed.symbols.find((symbol) => symbol.name === 'PlainComponent')?.semanticRole,
+    ).toBeUndefined();
+    expect(
+      parsed.symbols.find((symbol) => symbol.name === 'TypeOnlyComponentClass')?.semanticRole,
+    ).toBeUndefined();
+  });
+
+  it('reads JSON-with-comments tsconfig baseUrl, paths, and local extends references', () => {
     const config = parser.parseResolutionConfig(
       'tsconfig.json',
       `{
@@ -145,8 +182,13 @@ describe('TypeScript Compiler API parser', () => {
       'tsconfig.json',
       '{"extends":"./tsconfig.base.json","compilerOptions":{"paths":{"@/*":["src/*"]}}}',
     );
-    expect(inherited.resolution).toBeNull();
-    expect(inherited.diagnostics[0]).toMatchObject({ code: 'TSCONFIG_EXTENDS_UNSUPPORTED' });
+    expect(inherited).toEqual({
+      resolution: {
+        extends: './tsconfig.base.json',
+        paths: [{ pattern: '@/*', targets: ['src/*'] }],
+      },
+      diagnostics: [],
+    });
   });
 
   it('bounds tsconfig alias mappings and baseUrl length', () => {

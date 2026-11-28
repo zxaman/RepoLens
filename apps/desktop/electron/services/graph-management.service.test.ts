@@ -268,6 +268,23 @@ describe('graph management service', () => {
       nodes: [expect.objectContaining({ name: 'greet', type: 'function' })],
     });
     await expect(
+      service.neighborhood(projectId, {
+        nodeId: 'file:src/index.ts',
+        direction: 'outgoing',
+        depth: 1,
+        limit: 20,
+      }),
+    ).resolves.toMatchObject({
+      anchorNodeId: 'file:src/index.ts',
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ id: 'file:src/index.ts' }),
+        expect.objectContaining({ id: 'file:src/helper.ts' }),
+      ]),
+      edges: expect.arrayContaining([
+        expect.objectContaining({ type: 'imports', specifier: './helper' }),
+      ]),
+    });
+    await expect(
       service.dependencies(projectId, { relativePath: 'src/index.ts', direction: 'dependencies' }),
     ).resolves.toMatchObject({ files: [{ relativePath: 'src/helper.ts', distance: 1 }] });
     await expect(

@@ -12,7 +12,6 @@ import {
   type GraphBuildProgress,
   type GraphCycleReport,
   type GraphGenerationReport,
-  type GraphNode,
   type GraphSummary,
   type Project,
   type ScanConfig,
@@ -22,8 +21,9 @@ import {
   type ScanProgress,
   type ScanResult,
 } from '@repolens/shared';
-import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
 import { AnalysisService } from '../services/analysis.service';
+import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
+import { GraphVisualizationComponent } from '../components/graph-visualization.component';
 import { GraphService } from '../services/graph.service';
 import { ProjectService, toUserMessage } from '../services/project.service';
 import { ScanService } from '../services/scan.service';
@@ -32,7 +32,7 @@ import { SettingsService } from '../../settings/settings.service';
 @Component({
   selector: 'app-project-details-page',
   standalone: true,
-  imports: [DatePipe, RouterLink, ConfirmRemoveDialogComponent],
+  imports: [DatePipe, RouterLink, ConfirmRemoveDialogComponent, GraphVisualizationComponent],
   templateUrl: './project-details-page.component.html',
   styleUrl: './project-details-page.component.scss',
 })
@@ -57,7 +57,6 @@ export class ProjectDetailsPageComponent implements OnInit {
   readonly analysisError = signal('');
   readonly graphReport = signal<GraphGenerationReport | null>(null);
   readonly graphSummary = signal<GraphSummary | null>(null);
-  readonly graphNodes = signal<readonly GraphNode[]>([]);
   readonly graphCycles = signal<GraphCycleReport | null>(null);
   readonly graphProgress = signal<GraphBuildProgress | null>(null);
   readonly graphError = signal('');
@@ -86,6 +85,7 @@ export class ProjectDetailsPageComponent implements OnInit {
   readonly additionalExcludedDirectories = signal('');
   readonly additionalIgnorePatterns = signal('');
   readonly defaultExcludedDirectories = DEFAULT_SCAN_CONFIG.excludedDirectories;
+  readonly defaultExcludedPatterns = DEFAULT_SCAN_CONFIG.excludePatterns;
 
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -378,7 +378,6 @@ export class ProjectDetailsPageComponent implements OnInit {
     this.graphError.set('');
     this.graphReport.set(null);
     this.graphSummary.set(null);
-    this.graphNodes.set([]);
     this.graphCycles.set(null);
     this.graphProgress.set(null);
     this.generatingGraph.set(true);
@@ -398,9 +397,8 @@ export class ProjectDetailsPageComponent implements OnInit {
         return;
       }
 
-      const [summary, nodes, cycles] = await Promise.all([
+      const [summary, cycles] = await Promise.all([
         this.graphService.summary(current.id),
-        this.graphService.query(current.id, { limit: 100 }),
         this.graphService.cycles(current.id),
       ]);
       if (
@@ -414,7 +412,6 @@ export class ProjectDetailsPageComponent implements OnInit {
       }
       if (
         summary === null ||
-        nodes === null ||
         cycles === null ||
         summary.scanId !== scan.id ||
         summary.analysisId !== analysis.analysisId
@@ -422,7 +419,6 @@ export class ProjectDetailsPageComponent implements OnInit {
         throw new Error('RepoLens generated the graph but could not retrieve its validated data.');
       }
       this.graphSummary.set(summary);
-      this.graphNodes.set(nodes.nodes);
       this.graphCycles.set(cycles);
     } catch (error) {
       if (revision === this.graphRunRevision && !this.destroyed) {
@@ -582,7 +578,6 @@ export class ProjectDetailsPageComponent implements OnInit {
     this.generatingGraph.set(false);
     this.graphReport.set(null);
     this.graphSummary.set(null);
-    this.graphNodes.set([]);
     this.graphCycles.set(null);
     this.graphProgress.set(null);
     this.graphError.set('');

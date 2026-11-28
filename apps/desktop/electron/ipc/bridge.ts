@@ -7,6 +7,7 @@ import {
   graphGenerationReportSchema,
   graphDisposeResultSchema,
   graphExportJsonSchema,
+  graphNeighborhoodResultSchema,
   graphNodeQueryResultSchema,
   graphPathResultSchema,
   graphSummarySchema,
@@ -23,6 +24,7 @@ import {
   type GraphBuildProgress,
   type GraphCycleQuery,
   type GraphDependencyQuery,
+  type GraphNeighborhoodQuery,
   type GraphNodeQuery,
   type GraphPathQuery,
   type RepoLensAPI,
@@ -57,6 +59,7 @@ const scanHistoryItemNullableSchema = scanHistoryItemSchema.nullable();
 const graphGenerationReportResultSchema = graphGenerationReportSchema;
 const graphSummaryNullableSchema = graphSummarySchema.nullable();
 const graphNodeQueryResultNullableSchema = graphNodeQueryResultSchema.nullable();
+const graphNeighborhoodResultNullableSchema = graphNeighborhoodResultSchema.nullable();
 const graphTraversalResultNullableSchema = graphTraversalResultSchema.nullable();
 const graphPathResultNullableSchema = graphPathResultSchema.nullable();
 const graphCycleReportNullableSchema = graphCycleReportSchema.nullable();
@@ -235,6 +238,13 @@ export function createRepoLensAPI(invoker: IpcInvoker, eventSource?: IpcEventSou
           projectId,
           query,
         }),
+      neighborhood: (projectId: string, query: GraphNeighborhoodQuery) =>
+        invokeResult(
+          invoker,
+          IPC_CHANNELS.graphsNeighborhood,
+          graphNeighborhoodResultNullableSchema,
+          { projectId, query },
+        ),
       dependencies: (projectId: string, query: GraphDependencyQuery) =>
         invokeResult(invoker, IPC_CHANNELS.graphsDependencies, graphTraversalResultNullableSchema, {
           projectId,

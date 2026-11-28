@@ -1,26 +1,27 @@
 # Changelog
 
-## [Unreleased] — Phase 5 explicit graph generation (target v0.5.0; implementation on branch `arena/08215937-repolens`)
+## [Unreleased] — Phase 5 explicit graph generation and Architecture Explorer (target v0.5.0; implementation on branch `arena/f74b7a83-repolens`)
 
 ### Added
 
-- Shared Zod contracts for analyzed-file inventories, graph-generation requests/reports, progress, nodes/edges/dependencies, queries/cycles, and JSON export, with normalized-path, identity, reference, and size validation.
+- Shared Zod contracts for analyzed-file inventories, graph-generation requests/reports, progress, nodes/edges/dependencies, paged queries, bounded directional neighborhoods, cycles, and JSON export, with normalized-path, identity, reference, endpoint, truncation, and size validation.
 - Framework-independent asynchronous Graphology construction from real Phase 4 `AnalysisResult` data. Parser-confirmed files remain in the graph even when they have no symbols/imports; relationships are evidence-backed, and resolved, external, and unresolved imports remain distinct.
-- Explicit `graphs.generate(projectId, scanId, analysisId)` IPC/preload API and project-details report panel. Generation requires the matching current completed scan and completed/partial analysis, at least one analyzed source file, and inventory consistency; it revalidates current scan/analysis before publication.
+- Explicit `graphs.generate(projectId, scanId, analysisId)` IPC/preload API and project-details report panel. Generation requires the matching current completed scan and completed/partial analysis, at least one analyzed source file, and inventory consistency; it revalidates current scan/analysis before publication. The bridge also exposes validated paged node queries and bounded directional neighborhoods.
 - Partial-result warnings, user-safe failure reports for failed/stale/empty/out-of-inventory cases, and no partial or project-only graph publication.
 - Project-ID-keyed in-memory graph lifecycle with revision leases, stale-publication prevention, replacement, disposal, age/capacity cleanup, and progress. Full scan inventories and analysis results use separate bounded 50-project LRU memory caches.
-- Directed local dependency traversal/dependent queries with cycle-safe depth limits, shortest paths, deterministic node queries, metrics, iterative SCC detection, and bounded canonical simple-cycle enumeration.
-- Deterministic graph-engine/provider/schema/service/IPC/bridge/UI tests and real worker/workflow assertions for explicit graph counts and cycles. See [Graph Engine](docs/GRAPH_ENGINE.md).
+- Directed local dependency traversal/dependent queries with cycle-safe depth limits, shortest paths, deterministic node queries whose returned edges reference only page nodes, neighborhoods capped at 250 nodes / 3 hops / 2,000 edges, metrics, iterative SCC detection, and bounded canonical simple-cycle enumeration.
+- A progressive Cytoscape Architecture Explorer in project details. It starts from a bounded project neighborhood and supports paged search (100 per request, up to 600 rendered nodes per search view), type filters, selection/highlighting, viewport controls, and depth/direction-controlled neighborhood expansion; graph data is fetched as validated DTOs and the whole graph is never loaded into one renderer scene.
+- Deterministic graph-engine/provider/schema/service/IPC/bridge/UI tests and real worker/workflow assertions for explicit graph counts, cycles, endpoint-valid search pages, and bounded neighborhoods. See [Graph Engine](docs/GRAPH_ENGINE.md).
 
 ### Scope and limitations
 
-- Only Phase 4 evidence is used. Graphs do not infer calls, inheritance, API routes, or database models. Project details shows a bounded report, node list, and cycle paths, but no full graph visualization/Architecture Explorer or CLI graph command.
+- Only Phase 4 evidence is used. Graphs do not infer calls, inheritance, API routes, or database models. The renderer progressively browses bounded graph subsets rather than drawing the whole graph at once; a CLI graph command is not included.
 - Graphs are transient and bounded in memory. JSON is the only graph export; GraphML, persistence/SQLite/Drizzle, incremental indexing, report/ZIP/SVG/PNG export, and change-impact analysis are not implemented. The core engine supports cancellation, but the desktop generation action has no graph-specific cancel control.
 - Automated verification does not replace the outstanding supported-platform Electron GUI/native-picker/graph-generation smoke test.
 
 ### Verification
 
-- `npm test` passed: 36 Vitest files / 122 tests, 4 Angular spec files / 11 tests, emitted worker smoke test, and desktop workflow integration covering explicit generation/progress, queries, paths, cycles, JSON export, disposal, scan cancellation, history, and source integrity. The worker smoke test built 6 nodes / 8 edges; the desktop workflow built 10 nodes / 16 edges with 1 cycle.
+- `npm test` passed: 36 Vitest files / 135 tests, 4 Angular spec files / 11 tests, emitted worker smoke test, and desktop workflow integration covering explicit generation/progress, endpoint-valid search pages, project/directed-import neighborhoods, queries, paths, cycles, JSON export, disposal, scan cancellation, history, and source integrity. The worker smoke test built 6 nodes / 8 edges; the desktop workflow built 10 nodes / 16 edges with 1 cycle.
 - `npm run build`, `npm run typecheck`, `npm run lint`, and `npm run format:check` passed. Production Angular output has non-fatal initial-bundle and component-style budget warnings; see [Project Status](PROJECT_STATUS.md).
 - Electron's native GUI/picker and supported-platform manual smoke test remain unverified in this sandbox.
 
@@ -29,8 +30,8 @@
 ### Added
 
 - Shared Zod contracts and typed start/cancel/progress API for transient analysis results.
-- TypeScript Compiler API parser for TypeScript/TSX/JavaScript/JSX syntax, symbols, imports, exports, path-alias/local dependency classification, and diagnostics.
-- Bounded `@repolens/core` analysis over the exact current validated Phase 3 scan inventory, with cancellation, progress, source/config byte and file-count limits, result limits, and inventory-scoped file reads.
+- TypeScript Compiler API parser for TypeScript/TSX/JavaScript/JSX syntax, symbols, imports, exports, path-alias/local dependency classification, and diagnostics. Angular class roles are identified only from real `Component`/`Injectable` decorators imported from `@angular/core`, including aliases and namespace imports.
+- Bounded `@repolens/core` analysis over the exact current validated Phase 3 scan inventory, with cancellation, progress, source/config byte and file-count limits, result limits, and inventory-scoped file reads. Resolver config selection handles bounded local relative `tsconfig` `extends` chains, effective `baseUrl`/`paths`, JSON imports, and ambiguous specialized configs without following package configs.
 - Electron analysis worker/session/management/IPC/preload integration; Electron main retains full scan inventories and validated analysis results only in separate bounded per-project memory caches, while source contents remain transient.
 - Project-details analysis UI with progress, cancellation, searchable symbols, import/export/dependency tables, and diagnostics.
 - Emitted Electron worker smoke tests, parser/pipeline/IPC/preload/service tests, and Angular UI tests. `npm run test:electron-workers` verifies the compiled worker output paths without launching Electron's native GUI.
@@ -46,7 +47,7 @@
 
 ### Added
 
-- Reusable core scanner with iterative directory-tree discovery; canonical-root and symlink-boundary checks; file classification; extension-derived language statistics; evidence-based technology detection; metadata; SHA-256 hashing; cancellation; progress; and safe warnings/errors.
+- Reusable core scanner with iterative directory-tree discovery; canonical-root and symlink-boundary checks; file classification; extension-derived language statistics; evidence-based technology detection; metadata; SHA-256 hashing; cancellation; progress; safe warnings/errors; and default exclusions for generated bundles, source maps, and common mobile web-output directories.
 - Root `.gitignore` and `.repolensignore` support for a documented, tested pattern subset with explicit precedence. Mandatory `.git`/`node_modules` exclusions and default sensitive-path protections cannot be overridden by project negation.
 - Scan schemas for strict config, result/file metadata, progress, warnings/errors, and per-project history summaries. Sensitive inclusion requires an explicit per-scan opt-in and risk acknowledgement.
 - Electron-owned Node filesystem adapter and worker-thread scan execution, validated start/cancel/history/latest IPC, a narrow preload progress subscription, and bounded versioned JSON scan-history persistence.

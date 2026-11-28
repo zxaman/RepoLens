@@ -3,6 +3,8 @@ import type {
   GraphBuildProgress,
   GraphCycleReport,
   GraphGenerationReport,
+  GraphNeighborhoodQuery,
+  GraphNeighborhoodResult,
   GraphNodeQuery,
   GraphNodeQueryResult,
   GraphSummary,
@@ -34,6 +36,13 @@ export class GraphService {
 
   async query(projectId: string, query: GraphNodeQuery): Promise<GraphNodeQueryResult | null> {
     return unwrap(await this.getBridge().graphs.query(projectId, query));
+  }
+
+  async neighborhood(
+    projectId: string,
+    query: GraphNeighborhoodQuery,
+  ): Promise<GraphNeighborhoodResult | null> {
+    return unwrap(await this.getBridge().graphs.neighborhood(projectId, query));
   }
 
   async cycles(projectId: string): Promise<GraphCycleReport | null> {

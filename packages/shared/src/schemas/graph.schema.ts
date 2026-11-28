@@ -18,6 +18,9 @@ export const GRAPH_MAX_NODES = 150_000;
 export const GRAPH_MAX_EDGES = 400_000;
 export const GRAPH_MAX_DEPENDENCIES = 50_000;
 export const GRAPH_MAX_JSON_CHARS = 25_000_000;
+export const GRAPH_MAX_QUERY_EDGES = 2_000;
+export const GRAPH_MAX_NEIGHBORHOOD_NODES = 250;
+export const GRAPH_MAX_NEIGHBORHOOD_DEPTH = 3;
 
 const safeGraphPathSchema = z
   .string()
@@ -807,11 +810,138 @@ export const graphNodeQuerySchema = z
 export const graphNodeQueryResultSchema = z
   .object({
     nodes: z.array(graphNodeSchema).max(1000).readonly(),
+    edges: z.array(graphEdgeSchema).max(GRAPH_MAX_QUERY_EDGES).readonly(),
+    edgesTruncated: z.boolean(),
     total: z.number().int().nonnegative(),
     offset: z.number().int().nonnegative(),
     limit: z.number().int().positive(),
   })
-  .strict();
+  .strict()
+  .superRefine((result, context) => {
+    const nodeIds = new Set<string>();
+    for (const [index, node] of result.nodes.entries()) {
+      if (nodeIds.has(node.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['nodes', index, 'id'],
+          message: 'Graph query page node IDs must be unique.',
+        });
+      }
+      nodeIds.add(node.id);
+    }
+
+    const edgeIds = new Set<string>();
+    for (const [index, edge] of result.edges.entries()) {
+      if (edgeIds.has(edge.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['edges', index, 'id'],
+          message: 'Graph query page edge IDs must be unique.',
+        });
+      }
+      edgeIds.add(edge.id);
+      if (!nodeIds.has(edge.sourceId) || !nodeIds.has(edge.targetId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['edges', index],
+          message: 'Graph query page edges must connect nodes in the returned page.',
+        });
+      }
+    }
+    if (result.edgesTruncated && result.edges.length !== GRAPH_MAX_QUERY_EDGES) {
+      context.addIssue({
+        code: 'custom',
+        path: ['edgesTruncated'],
+        message: 'A truncated graph query edge list must be at its configured maximum.',
+      });
+    }
+  });
+
+export const graphNeighborhoodQuerySchema = z
+  .object({
+    nodeId: graphIdSchema,
+    direction: z.enum(['both', 'outgoing', 'incoming']).default('both'),
+    edgeTypes: z.array(graphEdgeTypeSchema).max(8).optional(),
+    depth: z.number().int().min(1).max(GRAPH_MAX_NEIGHBORHOOD_DEPTH).default(1),
+    limit: z.number().int().min(1).max(GRAPH_MAX_NEIGHBORHOOD_NODES).default(160),
+  })
+  .strict()
+  .superRefine((query, context) => {
+    if (query.edgeTypes !== undefined && new Set(query.edgeTypes).size !== query.edgeTypes.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['edgeTypes'],
+        message: 'Neighborhood edge-type filters must be unique.',
+      });
+    }
+  });
+
+export const graphNeighborhoodResultSchema = z
+  .object({
+    anchorNodeId: graphIdSchema,
+    depth: z.number().int().min(1).max(GRAPH_MAX_NEIGHBORHOOD_DEPTH),
+    limit: z.number().int().positive().max(GRAPH_MAX_NEIGHBORHOOD_NODES),
+    nodes: z.array(graphNodeSchema).max(GRAPH_MAX_NEIGHBORHOOD_NODES).readonly(),
+    edges: z.array(graphEdgeSchema).max(GRAPH_MAX_QUERY_EDGES).readonly(),
+    nodesTruncated: z.boolean(),
+    edgesTruncated: z.boolean(),
+  })
+  .strict()
+  .superRefine((result, context) => {
+    const nodeIds = new Set<string>();
+    for (const [index, node] of result.nodes.entries()) {
+      if (nodeIds.has(node.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['nodes', index, 'id'],
+          message: 'Neighborhood node IDs must be unique.',
+        });
+      }
+      nodeIds.add(node.id);
+    }
+    if (!nodeIds.has(result.anchorNodeId)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['anchorNodeId'],
+        message: 'A neighborhood must include its anchor node.',
+      });
+    }
+    if (
+      result.nodes.length > result.limit ||
+      (result.nodesTruncated && result.nodes.length !== result.limit)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['nodesTruncated'],
+        message: 'A truncated neighborhood must be at its declared node limit.',
+      });
+    }
+    const edgeIds = new Set<string>();
+    for (const [index, edge] of result.edges.entries()) {
+      if (edgeIds.has(edge.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['edges', index, 'id'],
+          message: 'Neighborhood edge IDs must be unique.',
+        });
+      }
+      edgeIds.add(edge.id);
+      if (!nodeIds.has(edge.sourceId) || !nodeIds.has(edge.targetId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['edges', index],
+          message: 'Neighborhood edges must connect nodes included in the result.',
+        });
+      }
+    }
+    if (result.edgesTruncated && result.edges.length !== GRAPH_MAX_QUERY_EDGES) {
+      context.addIssue({
+        code: 'custom',
+        path: ['edgesTruncated'],
+        message: 'A truncated neighborhood edge list must be at its configured maximum.',
+      });
+    }
+  });
 
 export const graphDependencyQuerySchema = z
   .object({
@@ -935,6 +1065,8 @@ export type GraphGenerationReport = z.infer<typeof graphGenerationReportSchema>;
 export type GraphExport = z.infer<typeof graphExportSchema>;
 export type GraphNodeQuery = z.input<typeof graphNodeQuerySchema>;
 export type GraphNodeQueryResult = z.infer<typeof graphNodeQueryResultSchema>;
+export type GraphNeighborhoodQuery = z.input<typeof graphNeighborhoodQuerySchema>;
+export type GraphNeighborhoodResult = z.infer<typeof graphNeighborhoodResultSchema>;
 export type GraphDependencyQuery = z.input<typeof graphDependencyQuerySchema>;
 export type GraphTraversalResult = z.infer<typeof graphTraversalResultSchema>;
 export type GraphPathQuery = z.input<typeof graphPathQuerySchema>;
