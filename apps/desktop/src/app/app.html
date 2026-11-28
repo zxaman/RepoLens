@@ -29,6 +29,17 @@
     </div>
   </header>
 
+  @if (!desktopRuntimeAvailable) {
+    <aside id="desktop-runtime-notice" class="runtime-notice" role="status">
+      <strong>Browser preview only.</strong>
+      <span>
+        Project management, scanning, and analysis are available in the RepoLens desktop
+        application. Run <code>npm run dev:desktop</code> from the repository root and use its
+        Electron window.
+      </span>
+    </aside>
+  }
+
   <main class="app-content">
     <router-outlet />
   </main>

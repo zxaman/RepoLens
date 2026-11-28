@@ -16,6 +16,7 @@ export class ProjectImportButtonComponent {
   @Input() variant: 'primary' | 'secondary' = 'primary';
   @Output() registered = new EventEmitter<Project>();
 
+  readonly desktopRuntimeAvailable = typeof window !== 'undefined' && window.repolens !== undefined;
   readonly busy = signal(false);
   readonly dialogState = signal<ProjectImportResult | null>(null);
   readonly error = signal('');

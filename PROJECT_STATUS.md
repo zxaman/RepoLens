@@ -44,23 +44,65 @@
 - [x] Kept source text and analysis results ephemeral; scan history continues to persist summary-only records.
 - [x] Added parser/core/service/filesystem/IPC/preload/UI tests and an emitted-worker smoke test. See [Static Analysis](docs/STATIC_ANALYSIS.md).
 
-Phase 4 implementation and automated checks are complete; do not treat the milestone as a release until the remaining supported-platform smoke test and release review are done. Phase 5 has not started.
+Phase 4 implementation is present; Phase 5 is paused until the existing desktop workflows pass a supported-platform GUI smoke test. Automated checks are not a substitute for launching Electron with its native folder picker.
+
+## Functional implementation audit
+
+For this audit, **end-to-end working** means exercised in the actual RepoLens Electron window with its real preload and native folder picker. That GUI test cannot be performed in this sandbox, so no row is marked end-to-end working. Automated service/IPC/worker tests provide evidence for the connected backend paths but do not close that gap.
+
+| Feature                | UI / backend connected                 | Automated evidence (not native GUI)                                                       | Native desktop GUI E2E |
+| ---------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------- |
+| Import Project         | Yes / Yes                              | Stubbed folder selection and preview; service tests cover cancellation/duplicates         | Not verified           |
+| Project Registration   | Yes / Yes                              | Simulated-IPC confirmation, generated ID/metadata, and registry reload after restart      | Not verified           |
+| Recent Projects        | Yes / Yes                              | Active/recent project and `lastOpenedAt` persist across service recreation                | Not verified           |
+| Project Switching      | Yes / Yes                              | `setActive` bridge call persists the active project                                       | Not verified           |
+| Start Scan             | Yes / Yes                              | Real worker scans 3 fixture files through registered IPC handlers and preload API         | Not verified           |
+| Scan Progress          | Yes / Yes                              | Bridge subscription receives actual worker progress phases                                | Not verified           |
+| Scan Cancellation      | Yes / Yes                              | Scan cancelled through bridge while real worker is active                                 | Not verified           |
+| Scan History           | Yes / Yes                              | Summary persisted and read back; removal path also verified                               | Not verified           |
+| Static Analysis        | Yes / Yes                              | Actual scan result feeds worker analysis: 6 symbols and a resolved local dependency       | Not verified           |
+| Symbol Explorer        | Yes / Yes                              | Angular component spec browses returned symbols; worker workflow supplies real results    | Not verified           |
+| Import/Export Explorer | Yes — syntax tables / parser connected | Component spec plus actual worker imports/exports; this is code syntax, not file transfer | Not verified           |
+| Dependency Browser     | Yes / Yes                              | Actual worker resolves `src/helper.ts`; component test renders dependency results         | Not verified           |
+
+### Visible controls audit
+
+- Welcome, Projects, Settings, Back to projects, Open Existing Project, View all projects, project names, and Open project controls navigate to real Angular routes. Opening a registered project updates the active-project record.
+- Import Project / Choose a Folder opens the native picker through the preload and IPC bridge, then previews and confirms registration. Cancel, duplicate detection, and Open Existing Project have explicit paths. In a browser preview, import controls are now disabled with an explanation instead of showing a click-time failure.
+- Project Remove and project-page Remove use the confirmation preference and remove only RepoLens registration/history. Registry removal is committed before scan-history cleanup, so a failed registry write leaves history intact. Refresh metadata revalidates the folder.
+- Start Scan and Cancel Scan invoke the scanner worker and stream progress. Analyze scanned source and Cancel analysis invoke the bounded analysis worker. Settings Save and Reset call persistence services.
+- Symbol/import/export/dependency/diagnostic panels use native disclosure controls; symbol search filters returned analysis results. No export-to-file action is currently exposed.
+- Removed the stale project-card “Not scanned yet” label and corrected the welcome copy that said analysis was unavailable. Scan results now show actual directory count, ignored-file count, and duration in addition to file/source counts, language/technology evidence, and status.
+
+### Root causes found and repairs
+
+1. The reported “Project management is available in the RepoLens desktop application” message was the renderer’s expected browser fallback: a normal browser has no `window.repolens` preload. Import buttons are now disabled in browser preview with a persistent explanation.
+2. The user’s first `dev:desktop` run failed to resolve `@repolens/shared`; a clean `npm ci` restored npm workspace links, after which `npm run build:packages` passed.
+3. The user’s next Angular cold build took **114.992 seconds**, exceeding the dev script’s **90-second** renderer timeout. It threw before launching Electron and left an Angular web server process behind on Windows. The timeout is now five minutes, and Windows cleanup terminates the child process tree.
+4. Several UI claims were stale or incomplete: the welcome screen understated static analysis, project cards displayed a hard-coded scan status, and scan summaries omitted directories, ignored files, and duration. Those were corrected. Electron diagnostics now retain bounded error names/codes/messages while redacting absolute paths and omitting raw stacks/arbitrary thrown values; renderer-facing errors remain user-safe.
+
+### Changed files
+
+- **Renderer shell and project UI:** `apps/desktop/src/app/app.html`, `app.scss`, `app.ts`, `app.spec.ts`; project-card and project-import-button component HTML/SCSS/TypeScript plus `project-import-button.component.spec.ts`; project-details page HTML/TypeScript/spec; `welcome-page.component.html`.
+- **Electron workflow and diagnostics:** `apps/desktop/electron/main.ts`; `services/atomic-json-file.ts`, `project-errors.ts`, new `diagnostic-logging.ts` and `diagnostic-logging.test.ts`; `scan-management.service.ts` and its test, `scan-worker.ts`/`scan-worker-session.ts`, `analysis-management.service.ts`, and `analysis-worker.ts`/`analysis-worker-session.ts`.
+- **Workflow, startup, and documentation:** `scripts/test-desktop-workflow.mjs`, `scripts/dev-desktop.mjs`, `package.json`, `README.md`, and this status report.
 
 ## Verification
 
-| Check                           | Result                                                                                                                                                                                      |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run build`                 | **Passed** for all packages, CLI, Electron ESM/preload output, and production Angular renderer.                                                                                             |
-| `npm run typecheck`             | **Passed** for shared/core/language-support and remaining packages, CLI, Electron, and Angular strict templates.                                                                            |
-| `npm test`                      | **Passed:** 30 Vitest files / 83 tests, 3 Angular spec files / 9 tests, and emitted scan/analysis worker smoke test.                                                                        |
-| `npm run test:electron-workers` | **Passed:** built scan and analysis workers ran on a synthetic TypeScript project; analysis reused the scan result, analyzed 2 files, extracted 6 symbols, and resolved 1 local dependency. |
-| `npm run lint`                  | **Passed** with zero warnings/errors.                                                                                                                                                       |
-| `npm run format:check`          | **Passed.**                                                                                                                                                                                 |
-| `git diff --check`              | **Passed.**                                                                                                                                                                                 |
-| `npm ci`                        | Passed earlier in this session. The dependency audit reported 19 moderate findings in the development-tool dependency tree; no forced audit fix was applied.                                |
-| Electron GUI/native picker      | **Not verified:** the sandbox has no graphical display and could not obtain Electron's native binary. Worker smoke testing is not a GUI launch test.                                        |
+| Check                           | Result                                                                                                                                                                                                                                   |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run build`                 | **Passed** for packages, CLI, Electron ESM/preload output, and production Angular renderer. Angular reported existing non-fatal bundle/style budget warnings.                                                                            |
+| `npm run typecheck`             | **Passed** for packages, CLI, Electron, and Angular strict templates.                                                                                                                                                                    |
+| `npm test`                      | **Passed:** 31 Vitest files / 87 tests, 4 Angular spec files / 12 tests, worker smoke test, and desktop workflow bridge/service/worker integration.                                                                                      |
+| `npm run test:electron-workers` | **Passed:** actual workers scanned a temporary project, extracted 6 symbols, resolved the local `src/helper.ts` dependency, exercised progress/cancellation and summary persistence, and verified original source hashes were unchanged. |
+| `npm run lint`                  | **Passed** with zero warnings/errors.                                                                                                                                                                                                    |
+| `npm run format:check`          | **Passed.**                                                                                                                                                                                                                              |
+| `git diff --check`              | **Passed** at final audit.                                                                                                                                                                                                               |
+| `npm ci`                        | **Passed** in the sandbox. The dependency audit reported 19 moderate findings in the development-tool dependency tree; no forced audit fix was applied.                                                                                  |
+| Electron GUI/native picker      | **Not verified:** this sandbox has no graphical display and could not obtain Electron's native binary. The temporary-project test uses a picker stub and IPC dispatcher, not the real Electron window/native dialog.                     |
+| Windows `npm run dev:desktop`   | **Not re-run on Windows:** the user’s cold-build log showed 114.992 seconds versus the old 90-second timeout; the script now allows five minutes and kills the Windows child-process tree on cleanup.                                    |
 
-The production build has non-fatal budget warnings: the initial Angular bundle is 722.94 kB raw (150.93 kB estimated transfer) against the existing 500 kB warning budget; the project-details stylesheet is 9.56 kB against a 4 kB warning budget and remains under its 10 kB error limit. The preload bundle is approximately 1.5 MB with a 2.8 MB source map.
+The production build has non-fatal budget warnings: initial Angular bundle **724.24 kB raw** (151.10 kB estimated transfer) against the existing 500 kB warning budget; the project-details stylesheet is **9.56 kB** against a 4 kB warning budget and remains below its 10 kB error limit. The preload bundle is approximately 1.5 MB with a 2.8 MB source map.
 
 ## Scope, privacy, and known limitations
 
@@ -78,6 +120,6 @@ The production build has non-fatal budget warnings: the initial Angular bundle i
 - [ ] On a supported graphical machine with Electron's native runtime available, launch `npm run dev:desktop`; smoke-test native folder selection/import, scan and analysis progress/cancellation, results, history persistence/removal, app restart, and settings/theme behavior. Confirm project removal does not alter repository files.
 - [ ] Revisit Angular initial-bundle and project-details stylesheet budgets before production packaging.
 
-## Next milestone
+## Roadmap gate
 
-**v0.5.0 — Graph engine (future):** dependency graphs, circular-dependency detection, graph queries, and graph export. Do not begin this work until Phase 4's outstanding verification and release review are complete.
+Phase 5 has not started and remains paused. Do not begin new roadmap work until the native desktop import/scan/analysis workflow has passed the GUI smoke test above and the outstanding release review is complete.

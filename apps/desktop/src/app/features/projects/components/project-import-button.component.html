@@ -2,7 +2,9 @@
   type="button"
   class="import-button"
   [class.import-button-secondary]="variant === 'secondary'"
-  [disabled]="busy()"
+  [disabled]="busy() || !desktopRuntimeAvailable"
+  [attr.aria-describedby]="desktopRuntimeAvailable ? null : 'desktop-runtime-notice'"
+  [attr.title]="desktopRuntimeAvailable ? null : 'Folder import requires the desktop application.'"
   (click)="startImport()"
 >
   {{ busy() ? 'Working…' : label }}

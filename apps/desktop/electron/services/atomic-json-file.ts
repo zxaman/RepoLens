@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { z } from 'zod';
+import { safeErrorDetails } from './diagnostic-logging.js';
 
 export async function readValidatedJson<T>(
   filePath: string,
@@ -63,7 +64,10 @@ export async function atomicWriteJson(filePath: string, value: unknown): Promise
 async function quarantine(filePath: string, description: string, cause: unknown): Promise<void> {
   const backupPath = `${filePath}.corrupt-${Date.now()}-${randomUUID()}`;
   await rename(filePath, backupPath);
-  console.error(`RepoLens preserved malformed ${description} at ${backupPath}.`, cause);
+  console.error(`RepoLens preserved malformed ${description}.`, {
+    backupFile: basename(backupPath),
+    cause: safeErrorDetails(cause),
+  });
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

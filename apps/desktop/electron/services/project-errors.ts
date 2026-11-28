@@ -1,4 +1,5 @@
 import type { AppError } from '@repolens/shared';
+import { safeErrorDetails } from './diagnostic-logging.js';
 import { ServiceError } from './service-error.js';
 
 export function toProjectOperationError(error: unknown, operation: string): AppError {
@@ -22,7 +23,7 @@ export function toProjectOperationError(error: unknown, operation: string): AppE
     }
   }
 
-  console.error(`RepoLens ${operation} failed.`, error);
+  console.error(`RepoLens ${operation} failed.`, safeErrorDetails(error));
   return {
     code: 'INTERNAL_ERROR',
     message: 'RepoLens could not complete that request. Check the location and try again.',

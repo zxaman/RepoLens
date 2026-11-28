@@ -9,6 +9,7 @@ import { JsonSettingsRepository } from './services/json-settings-repository.js';
 import { JsonScanHistoryRepository } from './services/json-scan-history-repository.js';
 import { ScanManagementService } from './services/scan-management.service.js';
 import { ProjectManagementService } from './services/project-management.service.js';
+import { safeErrorDetails } from './services/diagnostic-logging.js';
 import { buildContentSecurityPolicy } from './security/content-security-policy.js';
 import {
   assertTrustedIpcInvocation,
@@ -175,12 +176,12 @@ void app
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         void createMainWindow(rendererTarget).catch((error: unknown) => {
-          console.error('Could not re-open the RepoLens window.', error);
+          console.error('Could not re-open the RepoLens window.', safeErrorDetails(error));
         });
       }
     });
   })
   .catch((error: unknown) => {
-    console.error('RepoLens desktop failed to initialize.', error);
+    console.error('RepoLens desktop failed to initialize.', safeErrorDetails(error));
     app.exit(1);
   });

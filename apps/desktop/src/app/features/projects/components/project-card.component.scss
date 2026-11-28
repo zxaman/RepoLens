@@ -52,8 +52,7 @@ h2 a:hover {
 }
 
 .status-badge,
-.metadata-chip,
-.scan-state {
+.metadata-chip {
   display: inline-flex;
   align-items: center;
   width: fit-content;
@@ -86,11 +85,6 @@ h2 a:hover {
 
 .metadata-chip {
   padding-inline: 0.5rem;
-}
-
-.scan-state {
-  border-color: transparent;
-  padding-left: 0;
 }
 
 .card-actions {

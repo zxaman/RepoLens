@@ -176,6 +176,16 @@ describe('scan management service', () => {
     await expect(service.getHistory(projectId)).resolves.toEqual([historyItem]);
     await expect(service.getLatest(projectId)).resolves.toEqual(historyItem);
     await expect(service.cancel(input.scanId)).rejects.toMatchObject({ code: 'SCAN_NOT_RUNNING' });
+
+    const failedRegistrationRemoval = vi.fn(async () => {
+      throw new Error('The project registry could not be written.');
+    });
+    await expect(service.removeProject(projectId, failedRegistrationRemoval)).rejects.toThrow(
+      'The project registry could not be written.',
+    );
+    expect(history.items).toEqual([historyItem]);
+    expect(service.getCurrentResult(projectId, input.scanId)).toEqual(result);
+
     await expect(service.removeProject(projectId, removeRegistration)).resolves.toEqual({
       removed: true,
     });

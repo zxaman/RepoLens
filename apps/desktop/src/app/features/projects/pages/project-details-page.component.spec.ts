@@ -300,6 +300,10 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
       }),
     );
     expect(page.textContent).toContain('Scan completed');
+    expect(page.textContent).toContain('files discovered');
+    expect(page.textContent).toContain('directories');
+    expect(page.textContent).toContain('ignored files');
+    expect(page.textContent).toContain('scan duration');
     expect(page.textContent).toContain('React');
     expect(page.textContent).toContain('src/index.ts');
     expect(page.textContent).toContain('aaaaaaaaaaaaaaaa…');

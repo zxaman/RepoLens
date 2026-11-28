@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { analyzeScan } from '@repolens/core';
 import { TypeScriptParser } from '@repolens/language-support';
 import { NodeAnalysisFileSystem } from './node-analysis-file-system.js';
+import { safeErrorDetails } from './diagnostic-logging.js';
 
 interface StartMessage {
   readonly type: 'start';
@@ -94,7 +95,11 @@ async function runAnalysis(message: StartMessage, abortController: AbortControll
       postMessage({ type: 'progress', progress: pendingProgress });
     }
     postMessage({ type: 'result', result: analysisResultSchema.parse(result) });
-  } catch {
+  } catch (error) {
+    console.error(
+      'RepoLens static-analysis worker failed.',
+      safeErrorDetails(error, [message.rootPath]),
+    );
     postMessage({
       type: 'failure',
       message: 'The analysis worker stopped before it could return a validated result.',

@@ -36,26 +36,33 @@ See [Architecture](docs/ARCHITECTURE.md), [Scanner](docs/SCANNING.md), [Project 
 - Angular 21, TypeScript 5.9, Electron, npm workspaces, Zod, Vitest, ESLint, and Prettier.
 - Electron runs with context isolation, sandboxing, `nodeIntegration: false`, a restrictive Content Security Policy, sender validation, and an allowlisted IPC surface.
 
-## Development
+## Run the desktop app
+
+From the repository root, install dependencies and start the desktop app:
 
 ```bash
 npm ci
+npm run dev:desktop
+```
+
+`npm run dev:desktop` builds the workspace packages and Electron code, starts the Angular renderer locally, then opens it in a separate RepoLens Electron window. Use that desktop window to import a folder. The `http://localhost:4200/` address printed by Angular is only the renderer server that Electron loads; opening it in a browser does not provide the native project-management bridge. Keep the command running and wait for the Electron window—Angular's first development build can take a couple of minutes. A graphical desktop session and Electron's native binary are required.
+
+## Development and validation
+
+```bash
 npm run build
 npm run typecheck
 npm test
 npm run lint
 npm run format:check
+```
 
-# Start Angular directly from the repository root; project/scan APIs need Electron
-ng serve
+For renderer-only UI work, `ng serve` (also available as `npm start` or `npm run dev:web`) starts a browser preview. It does not include Electron's native APIs, so project import, scanning, and analysis are not available in that preview.
 
-# Optional npm alias for the same command
-npm start
+The CLI is a separate, early foundation and currently supports only version and help; it does not import, scan, or analyze projects:
 
-# Desktop app with the Angular dev server (requires Electron's native binary and a display)
-npm run dev:desktop
-
-# CLI foundation; no project scanning command is implemented
+```bash
+npm run build:cli
 npm run cli -- --version
 npm run cli -- --help
 ```

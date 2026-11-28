@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('../', import.meta.url)));
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const rendererUrl = 'http://127.0.0.1:4200/';
+const rendererStartupTimeoutMilliseconds = 5 * 60_000;
 const children = new Set();
 
 function spawnNpm(args, env = process.env) {
@@ -33,7 +34,7 @@ function runNpm(args) {
   });
 }
 
-async function waitForRenderer(child, timeoutMilliseconds = 90_000) {
+async function waitForRenderer(child, timeoutMilliseconds = rendererStartupTimeoutMilliseconds) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMilliseconds) {
     if (child.exitCode !== null) {
@@ -52,11 +53,22 @@ async function waitForRenderer(child, timeoutMilliseconds = 90_000) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
   }
 
-  throw new Error(`Angular did not become ready at ${rendererUrl} within 90 seconds.`);
+  const timeoutSeconds = Math.ceil(timeoutMilliseconds / 1_000);
+  throw new Error(
+    `Angular did not become ready at ${rendererUrl} within ${timeoutSeconds} seconds.`,
+  );
 }
 
 function stopChildren() {
   for (const child of children) {
+    if (process.platform === 'win32' && child.pid !== undefined) {
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      continue;
+    }
+
     child.kill('SIGTERM');
   }
 }

@@ -268,6 +268,15 @@
                 <strong>{{ scan.sourceFiles }}</strong><span>source files</span>
               </div>
               <div>
+                <strong>{{ scan.directoriesDiscovered }}</strong><span>directories</span>
+              </div>
+              <div>
+                <strong>{{ scan.ignoredFiles }}</strong><span>ignored files</span>
+              </div>
+              <div>
+                <strong>{{ formatDuration(scan.durationMs) }}</strong><span>scan duration</span>
+              </div>
+              <div>
                 <strong>{{ scan.configurationFiles }}</strong><span>configuration</span>
               </div>
               <div>
@@ -744,6 +753,15 @@
                 <strong>{{ latest.sourceFiles }}</strong><span>source files</span>
               </div>
               <div>
+                <strong>{{ latest.directoriesDiscovered }}</strong><span>directories</span>
+              </div>
+              <div>
+                <strong>{{ latest.ignoredFiles }}</strong><span>ignored files</span>
+              </div>
+              <div>
+                <strong>{{ formatDuration(latest.durationMs) }}</strong><span>scan duration</span>
+              </div>
+              <div>
                 <strong>{{ latest.configurationFiles }}</strong><span>configuration</span>
               </div>
               <div>
@@ -821,7 +839,8 @@
                   </div>
                   <p>
                     {{ item.filesDiscovered }} files · {{ item.sourceFiles }} source ·
-                    {{ formatBytes(item.bytesHashed) }} hashed
+                    {{ formatBytes(item.bytesHashed) }} hashed ·
+                    {{ formatDuration(item.durationMs) }}
                   </p>
                 </li>
               }
