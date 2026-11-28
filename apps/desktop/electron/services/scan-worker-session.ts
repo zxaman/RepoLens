@@ -1,7 +1,10 @@
 import { Worker } from 'node:worker_threads';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { scanProgressSchema, scanResultSchema } from '@repolens/shared';
 import type { ScanConfig, ScanProgress, ScanResult } from '@repolens/shared';
+
+const serviceDirectory = dirname(fileURLToPath(import.meta.url));
 
 export interface WorkerScanInput {
   readonly scanId: string;
@@ -22,7 +25,7 @@ export class ElectronScanWorkerSession implements ScanWorkerSession {
   private settled = false;
   private terminated = false;
 
-  constructor(workerPath = join(__dirname, 'scan-worker.js')) {
+  constructor(workerPath = join(serviceDirectory, 'scan-worker.js')) {
     this.worker = new Worker(workerPath);
   }
 

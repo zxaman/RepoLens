@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@repolens/core": "0.1.0"
+    "@repolens/core": "0.1.0",
+    "typescript": "~5.9.3"
   }
 }

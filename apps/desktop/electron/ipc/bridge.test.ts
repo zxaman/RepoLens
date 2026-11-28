@@ -1,4 +1,5 @@
 import {
+  analysisResultSchema,
   DEFAULT_SCAN_CONFIG,
   scanHistoryItemSchema,
   scanResultSchema,
@@ -41,8 +42,25 @@ const historyItem: ScanHistoryItem = scanHistoryItemSchema.parse({
   warnings: [],
 });
 const scanResult = scanResultSchema.parse({ ...historyItem, files: [], errors: [] });
+const analysisResult = analysisResultSchema.parse({
+  analysisId: '7d707ca0-312b-4a6f-8950-8df3441d973a',
+  scanId,
+  projectId,
+  status: 'completed',
+  startedAt: '2026-11-27T00:00:00.000Z',
+  completedAt: '2026-11-27T00:00:01.000Z',
+  durationMs: 1_000,
+  filesSelected: 1,
+  filesAnalyzed: 1,
+  filesSkipped: 0,
+  symbols: [],
+  imports: [],
+  exports: [],
+  dependencies: [],
+  diagnostics: [],
+});
 
-describe('secure scan preload API', () => {
+describe('secure analysis and scan preload APIs', () => {
   it('validates scan responses and sends only the approved scan payloads', async () => {
     const invocations: Array<{ channel: IpcChannel; payload?: object }> = [];
     const api = createRepoLensAPI({
@@ -57,7 +75,13 @@ describe('secure scan preload API', () => {
         if (channel === IPC_CHANNELS.scansGetHistory) {
           return { ok: true, data: [historyItem] };
         }
-        return { ok: true, data: { cancelled: true } };
+        if (channel === IPC_CHANNELS.analysisStart) {
+          return { ok: true, data: analysisResult };
+        }
+        if (channel === IPC_CHANNELS.analysisCancel || channel === IPC_CHANNELS.scansCancel) {
+          return { ok: true, data: { cancelled: true } };
+        }
+        return { ok: true, data: null };
       },
     });
 
@@ -77,11 +101,21 @@ describe('secure scan preload API', () => {
       ok: true,
       data: historyItem,
     });
+    await expect(api.analysis.start(projectId, scanId)).resolves.toEqual({
+      ok: true,
+      data: analysisResult,
+    });
+    await expect(api.analysis.cancel(analysisResult.analysisId)).resolves.toEqual({
+      ok: true,
+      data: { cancelled: true },
+    });
     expect(invocations).toEqual([
       { channel: IPC_CHANNELS.scansStart, payload: { projectId, config: DEFAULT_SCAN_CONFIG } },
       { channel: IPC_CHANNELS.scansCancel, payload: { scanId } },
       { channel: IPC_CHANNELS.scansGetHistory, payload: { projectId } },
       { channel: IPC_CHANNELS.scansGetLatest, payload: { projectId } },
+      { channel: IPC_CHANNELS.analysisStart, payload: { projectId, scanId } },
+      { channel: IPC_CHANNELS.analysisCancel, payload: { analysisId: analysisResult.analysisId } },
     ]);
   });
 
@@ -121,5 +155,40 @@ describe('secure scan preload API', () => {
     expect(callback).toHaveBeenCalledWith(progress);
     expect(() => cleanup()).not.toThrow();
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('validates static-analysis progress through only its approved event', () => {
+    let subscribedChannel: IpcEventChannel | null = null;
+    let eventListener: ((payload: unknown) => void) | null = null;
+    const cleanup = vi.fn();
+    const callback = vi.fn();
+    const api = createRepoLensAPI(
+      { invoke: async () => ({ ok: true, data: null }) },
+      {
+        subscribe: (channel, listener) => {
+          subscribedChannel = channel;
+          eventListener = listener;
+          return cleanup;
+        },
+      },
+    );
+    const unsubscribe = api.analysis.onProgress(callback);
+    const progress = {
+      analysisId: analysisResult.analysisId,
+      scanId,
+      projectId,
+      phase: 'parsing',
+      filesTotal: 1,
+      filesProcessed: 0,
+      currentPath: 'src/index.ts',
+    };
+
+    expect(subscribedChannel).toBe(IPC_EVENTS.analysisProgress);
+    eventListener?.(progress);
+    eventListener?.({ ...progress, currentPath: '../outside.ts' });
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledWith(progress);
+    unsubscribe();
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 });

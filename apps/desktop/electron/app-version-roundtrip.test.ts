@@ -7,6 +7,7 @@ import { assertTrustedIpcInvocation } from './security/sender-validation.js';
 import { createAppInfo } from './services/app-info.service.js';
 import type { AppSettingsService } from './services/app-settings.service.js';
 import type { ProjectManagementService } from './services/project-management.service.js';
+import type { AnalysisManagementService } from './services/analysis-management.service.js';
 import type { ScanManagementService } from './services/scan-management.service.js';
 
 type RegisteredHandler = Parameters<IpcMain['handle']>[1];
@@ -36,6 +37,7 @@ describe('app version IPC round trip', () => {
       {} as unknown as ProjectManagementService,
       {} as unknown as AppSettingsService,
       {} as unknown as ScanManagementService,
+      {} as unknown as AnalysisManagementService,
     );
 
     const trustedEvent = {

@@ -1,3 +1,4 @@
+import type { AnalysisProgress, AnalysisResult } from '../schemas/analysis.schema.js';
 import type { AppSettings } from '../schemas/app-settings.schema.js';
 import type {
   ProjectImportCommitResult,
@@ -34,6 +35,11 @@ export interface RepoLensAPI {
     onProgress(callback: (progress: ScanProgress) => void): () => void;
     getHistory(projectId: string): Promise<Result<readonly ScanHistoryItem[]>>;
     getLatest(projectId: string): Promise<Result<ScanHistoryItem | null>>;
+  };
+  readonly analysis: {
+    start(projectId: string, scanId: string): Promise<Result<AnalysisResult>>;
+    cancel(analysisId: string): Promise<Result<{ readonly cancelled: true }>>;
+    onProgress(callback: (progress: AnalysisProgress) => void): () => void;
   };
   readonly settings: {
     get(): Promise<Result<AppSettings>>;

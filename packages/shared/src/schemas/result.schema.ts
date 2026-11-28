@@ -15,6 +15,9 @@ export const appErrorCodeSchema = z.enum([
   'SELECTION_EXPIRED',
   'SCAN_ALREADY_RUNNING',
   'SCAN_NOT_RUNNING',
+  'ANALYSIS_ALREADY_RUNNING',
+  'ANALYSIS_SCAN_UNAVAILABLE',
+  'ANALYSIS_NOT_RUNNING',
 ]);
 
 export const appErrorSchema = z

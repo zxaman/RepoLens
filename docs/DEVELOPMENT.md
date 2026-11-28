@@ -23,15 +23,16 @@ npm run build:desktop
 npm run build:cli
 npm run dev:desktop
 npm run test
+npm run test:electron-workers
 npm run lint
 npm run typecheck
 npm run format
 npm run clean
 ```
 
-`npm run build` builds shared packages first, then the CLI and desktop. `npm run test` runs Vitest for Node packages and Electron IPC plus Angular's unit-test builder for renderer tests. Scanner tests use only `fixtures/scanner/basic/` and a virtualized boundary fixture; they do not scan arbitrary developer directories. `npm run typecheck` builds package declarations before checking consumers and the Angular templates.
+`npm run build` builds shared packages first, then the CLI and desktop. `npm run test` runs Vitest, Angular's renderer tests, and an emitted-Electron-worker smoke test. `npm run test:electron-workers` builds the Electron ESM output and runs the scan and analysis workers against a temporary synthetic TypeScript project; it does not launch the native GUI or picker. Other scanner/parser tests use synthetic fixtures and do not traverse arbitrary developer directories. `npm run typecheck` builds package declarations before checking consumers and Angular templates.
 
-The reusable scanner lives in `packages/core/src/scanner`; Electron's worker and Node filesystem adapter live under `apps/desktop/electron/services`. To add a capability, keep core independent of Electron/Angular and pass filesystem operations through `ScanFileSystem`. See [Scanner](SCANNING.md) for current ignore support, configuration, limits, and persistence semantics.
+The reusable scanner lives in `packages/core/src/scanner`; the bounded analyzer lives in `packages/core/src/pipeline/static-analysis.ts`; the TypeScript Compiler API parser lives in `packages/language-support`. Electron's worker sessions and filesystem adapters live under `apps/desktop/electron/services`. To add a capability, keep core independent of Electron/Angular and pass filesystem operations through narrow adapter interfaces. See [Scanner](SCANNING.md) and [Static Analysis](STATIC_ANALYSIS.md) for limits, behavior, and persistence semantics.
 
 ## Formatting and validation
 

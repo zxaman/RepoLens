@@ -2,7 +2,7 @@
 
 **Understand your codebase.**
 
-RepoLens is an open-source, local-first desktop project in active development. The project-management foundation registers local folders and saves application preferences. Phase 3 adds a real, reusable local scanner and integrates its progress and results into project details. The package version remains `0.2.0`; see [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current milestone and verification state.
+RepoLens is an open-source, local-first desktop project in active development. The project-management foundation registers local folders and saves application preferences. Phase 3 added a reusable local scanner; Phase 4 adds optional bounded TypeScript/JavaScript AST analysis that reuses the latest in-memory scan result. The package version remains `0.2.0`; see [PROJECT_STATUS.md](PROJECT_STATUS.md) for the current milestone and verification state.
 
 ## Current capabilities
 
@@ -12,19 +12,21 @@ RepoLens is an open-source, local-first desktop project in active development. T
 - List, activate, refresh basic folder metadata, and remove project registrations. Removing a registration never removes or edits the original folder.
 - Scan a registered project in a cancellable Electron worker thread: recursively discover files, apply bounded ignore and sensitive-file rules, classify files, detect extension-based languages and evidence-based technologies, record metadata, and compute streaming SHA-256 hashes.
 - View real scan progress, per-file metadata and hashes for the current page session, language/technology evidence, warnings, and bounded per-project summary history. No mock analysis metrics are generated.
-- Persist the project registry, settings, and up to 50 scan-history summaries per project under Electron's `userData` directory. Saved summaries omit file contents, inventories, and hashes.
+- Run bounded static analysis on the current validated scan inventory in a worker thread. Browse TypeScript/JavaScript symbols, import/export syntax, conservative local/alias/external dependency classifications, and diagnostics.
+- Persist the project registry, settings, and up to 50 scan-history summaries per project under Electron's `userData` directory. Saved summaries omit file contents, inventories, hashes, and analysis results.
 - Keep the renderer browser-only. Angular uses the typed, runtime-validated `window.repolens` preload API; Electron owns filesystem access and persistence.
 
-Scanning remains deliberately narrow. It does not execute imported-project code or commands, install dependencies, modify the imported repository, upload contents, resolve dependencies, parse ASTs/symbols, or call a backend/cloud/AI service. Sensitive paths are excluded by default and require a scan-specific opt-in plus risk acknowledgement. `.gitignore` and `.repolensignore` support is a documented, tested root-level subset—not full Git compatibility. See [Scanner](docs/SCANNING.md) for limits and precedence.
+Scanning and static analysis remain deliberately narrow. Neither executes imported-project code or commands, installs dependencies, modifies the repository, uploads contents, or calls a backend/cloud/AI service. The scanner itself does not parse ASTs or resolve dependencies; the separate Phase 4 action reads only source/configuration files already listed in the current `ScanResult` and resolves local imports only against that inventory plus scanned `tsconfig` aliases. It does not type-check code or construct a runtime dependency graph. Sensitive paths are excluded by default during scanning and require a scan-specific opt-in plus risk acknowledgement. `.gitignore` and `.repolensignore` support is a documented, tested root-level subset—not full Git compatibility. See [Scanner](docs/SCANNING.md) and [Static Analysis](docs/STATIC_ANALYSIS.md) for limits and behavior.
 
 ## Architecture
 
 - **Desktop renderer:** Angular 21 standalone application in `apps/desktop/src`; it has no Node.js filesystem or Electron APIs.
-- **Electron main/worker/preload:** the main process validates project/config requests, owns filesystem access, starts and cancels worker-thread scans, and persists local history. The sandboxed preload exposes only approved typed methods and a validated progress subscription.
-- **Shared contracts:** `packages/shared` defines Zod-validated project, scan configuration, result, progress, history, and error contracts.
-- **Reusable core:** `packages/core` contains the framework-independent scanner engine. It depends on shared contracts and a narrow filesystem adapter, not Angular or Electron.
-- **Persistence:** project registry, settings, and bounded scan summaries use versioned JSON in Electron `userData`, with atomic replacement and malformed-file quarantine. SQLite/Drizzle persistence and migration are future work.
-- **Other workspaces:** the CLI remains an executable foundation (`--version` / `--help`); AST analysis, dependency graphs, database indexing, export, and optional AI remain future milestones.
+- **Electron main/worker/preload:** the ESM main process validates project/config requests, owns filesystem access, starts and cancels scan/analysis workers, and persists local history. The sandboxed CommonJS preload exposes only approved typed methods and validated progress subscriptions.
+- **Shared contracts:** `packages/shared` defines Zod-validated project, scan and analysis configuration/results/progress/history, and error contracts.
+- **Reusable core:** `packages/core` contains the framework-independent scanner and bounded static-analysis pipeline. Both use narrow filesystem/parser interfaces, not Angular or Electron.
+- **Language support:** `packages/language-support` registers the TypeScript Compiler API parser for TypeScript and JavaScript syntax extraction.
+- **Persistence:** project registry, settings, and bounded scan summaries use versioned JSON in Electron `userData`, with atomic replacement and malformed-file quarantine. Full scans and analysis results are memory-only; SQLite/Drizzle persistence and migration are future work.
+- **Other workspaces:** the CLI remains an executable foundation (`--version` / `--help`); dependency graphs, database indexing, export, and optional AI remain future milestones.
 
 See [Architecture](docs/ARCHITECTURE.md), [Scanner](docs/SCANNING.md), [Project Management](docs/PROJECT_MANAGEMENT.md), and [IPC architecture](docs/IPC_ARCHITECTURE.md).
 
@@ -62,7 +64,7 @@ npm run cli -- --help
 
 ## Data and privacy
 
-Project registrations, settings, and bounded scan summaries remain in the application's local `userData` directory. The current full scan result—including file names, metadata, and hashes—is held in the renderer only while that project page is open; the persistent history stores summaries only. The scanner reads root ignore files, inspects `package.json` manifests up to 1 MiB for allowlisted technology evidence, and detects other configuration evidence from filenames before streaming eligible file bytes for hashing. File contents are not displayed or persisted. Imported-project code is never executed, dependencies are never installed, and the repository is never modified or uploaded.
+Project registrations, settings, and bounded scan summaries remain in the application's local `userData` directory. The latest full scan result—including paths, metadata, and hashes—is held in application memory so the renderer can show it and static analysis can reuse its validated inventory; saved scan history contains summaries only. Analysis results and source text are also memory-only and are discarded when their page/worker or the application closes. The scanner reads root ignore files, inspects `package.json` manifests up to 1 MiB for allowlisted technology evidence, and detects other configuration evidence from filenames before streaming eligible file bytes for hashing. Static analysis reads only inventoried source/config files within fixed limits. File contents are not displayed or persisted. Imported-project code is never executed, dependencies are never installed, and the repository is never modified or uploaded.
 
 ## Project status
 
@@ -71,6 +73,7 @@ See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the exact verification results, k
 ## Documentation
 
 - [Scanner and ignore support](docs/SCANNING.md)
+- [Static analysis](docs/STATIC_ANALYSIS.md)
 - [Project management](docs/PROJECT_MANAGEMENT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [IPC and Electron security](docs/IPC_ARCHITECTURE.md)

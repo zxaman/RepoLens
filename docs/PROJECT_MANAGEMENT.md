@@ -1,6 +1,6 @@
 # Project management (v0.2.0 foundation)
 
-This document describes the local project-registration lifecycle introduced in v0.2.0. A registered folder is a reference in RepoLens application data; import and metadata refresh do not scan or change it. Phase 3 adds an explicit scanner action on project details; its behavior, privacy limits, ignore semantics, and persistent history are documented in [Scanner](SCANNING.md).
+This document describes the local project-registration lifecycle introduced in v0.2.0. A registered folder is a reference in RepoLens application data; import and metadata refresh do not scan or change it. Phase 3 adds an explicit scanner action on project details; Phase 4 adds explicit static analysis over the current in-memory scan result. See [Scanner](SCANNING.md) and [Static Analysis](STATIC_ANALYSIS.md) for their behavior, privacy limits, ignore semantics, and persistence boundaries.
 
 ## Import lifecycle
 
@@ -32,10 +32,10 @@ Each project is checked against the shared Zod `projectSchema` and includes an I
 
 - **List / welcome:** projects are loaded from the registry and ordered by recent open time, then creation time. The welcome page shows up to the configured recent-project limit.
 - **Open / switch:** selecting a registered project makes it active and records `lastOpenedAt`. An unavailable folder cannot be activated.
-- **Details:** shows persisted registration metadata and current folder availability, plus the explicit Phase 3 scan controls, latest result, and per-project history. Full per-file metadata/hashes are available only for the current page session; saved history is summary-only.
+- **Details:** shows persisted registration metadata and current folder availability, plus the explicit scan and static-analysis controls, latest results, and per-project scan history. The latest full scan is held in application memory for analysis; per-file metadata/hashes are shown only in the project page, and analysis results are component-memory-only. Saved history remains summary-only.
 - **Refresh:** revalidates folder access and refreshes the display name and optional marker metadata. It does not traverse the folder or inspect source files.
 - **Unavailable folders:** a missing or inaccessible folder changes its status to unavailable; the registration stays in the registry until the user removes it.
-- **Remove:** deletes the RepoLens registration and that project's scan-history summaries (and clears active/default references where applicable). A removal is rejected while that project's scan is running. It never calls a recursive delete on the selected repository.
+- **Remove:** deletes the RepoLens registration and that project's scan-history summaries (and clears active/default references where applicable). A removal is rejected while that project's scan or static analysis is running. It never calls a recursive delete on the selected repository.
 
 ## Settings
 
@@ -56,8 +56,8 @@ The current release is JSON-backed. SQLite/Drizzle schema, database driver, migr
 
 ## Renderer and IPC boundary
 
-The standalone Angular screens are routed at `/welcome`, `/projects`, `/projects/:projectId`, and `/settings`. Renderer services use only the approved `window.repolens` API. Electron owns folder picking, path validation, registry/settings/history reads and writes, and scan worker lifecycle. Shared Zod contracts validate requests, scan configuration, results, and progress across IPC; sender, channel, and payload checks are enforced in the main process. See [IPC architecture](IPC_ARCHITECTURE.md) for the validated start/cancel/history API.
+The standalone Angular screens are routed at `/welcome`, `/projects`, `/projects/:projectId`, and `/settings`. Renderer services use only the approved `window.repolens` API. Electron owns folder picking, path validation, registry/settings/history reads and writes, and scan/analysis worker lifecycles. Shared Zod contracts validate requests, scan configuration, results, and progress across IPC; sender, channel, and payload checks are enforced in the main process. See [IPC architecture](IPC_ARCHITECTURE.md) for the validated start/cancel/history/analysis API.
 
 ## Explicit non-goals
 
-Project registration itself still does not recursively scan folders or read marker contents. The explicit Phase 3 scanner performs iterative discovery, classification, extension-based language statistics, allowlisted package/config evidence checks, and SHA-256 hashing. Ignore files and package manifests are capped at 1 MiB each, and hashing has a configurable per-file limit; there is not yet a total file/directory-count limit. Scanning does not execute scripts, install dependencies, initialize Git, modify/upload the repository, parse ASTs/symbols, construct dependency graphs, analyze APIs/models, export bundles, use AI, or use SQLite. See [Scanner](SCANNING.md) for the current ignore/sensitive-file limits and the remaining later-phase work.
+Project registration itself still does not recursively scan folders or read marker contents. The explicit Phase 3 scanner performs iterative discovery, classification, extension-based language statistics, allowlisted package/config evidence checks, and SHA-256 hashing. Phase 4 static analysis parses TypeScript/JavaScript syntax from the latest validated scan inventory in a bounded worker; see [Static Analysis](STATIC_ANALYSIS.md). The scanner does not execute scripts, install dependencies, initialize Git, modify/upload the repository, or call AI. Full dependency graphs, cycle detection, API/model discovery, export bundles, and SQLite persistence remain future work. See [Scanner](SCANNING.md) for current ignore/sensitive-file limits and the remaining later-phase work.

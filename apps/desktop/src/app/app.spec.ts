@@ -1,4 +1,5 @@
 import type {
+  AnalysisResult,
   AppSettings,
   Project,
   ProjectImportCommitResult,
@@ -69,6 +70,11 @@ function createTestBridge(
       onProgress: () => () => undefined,
       getHistory: () => success<readonly ScanHistoryItem[]>([]),
       getLatest: () => success<ScanHistoryItem | null>(null),
+    },
+    analysis: {
+      start: () => notImplemented<AnalysisResult>(),
+      cancel: () => notImplemented<{ readonly cancelled: true }>(),
+      onProgress: () => () => undefined,
     },
     settings: {
       get: () => success<AppSettings>({ ...settings }),

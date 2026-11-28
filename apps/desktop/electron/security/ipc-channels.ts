@@ -16,6 +16,8 @@ export const IPC_CHANNELS = {
   scansCancel: 'scans:cancel',
   scansGetHistory: 'scans:get-history',
   scansGetLatest: 'scans:get-latest',
+  analysisStart: 'analysis:start',
+  analysisCancel: 'analysis:cancel',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsReset: 'settings:reset',
@@ -23,6 +25,7 @@ export const IPC_CHANNELS = {
 
 export const IPC_EVENTS = {
   scansProgress: 'scans:progress',
+  analysisProgress: 'analysis:progress',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -55,6 +58,8 @@ export interface IpcPayloadByChannel {
   [IPC_CHANNELS.scansCancel]: { readonly scanId: string };
   [IPC_CHANNELS.scansGetHistory]: { readonly projectId: string };
   [IPC_CHANNELS.scansGetLatest]: { readonly projectId: string };
+  [IPC_CHANNELS.analysisStart]: { readonly projectId: string; readonly scanId: string };
+  [IPC_CHANNELS.analysisCancel]: { readonly analysisId: string };
   [IPC_CHANNELS.settingsGet]: undefined;
   [IPC_CHANNELS.settingsUpdate]: AppSettings;
   [IPC_CHANNELS.settingsReset]: undefined;

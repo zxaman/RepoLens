@@ -30,6 +30,7 @@ export type ScanProgressSink = (progress: ScanProgress) => void;
 
 export class ScanManagementService {
   private activeScan: ActiveScan | null = null;
+  private latestResult: { readonly projectId: string; readonly result: ScanResult } | null = null;
   private startingScan = false;
   private startingProjectId: string | null = null;
   private readonly removingProjectIds = new Set<string>();
@@ -133,7 +134,9 @@ export class ScanManagementService {
           'WORKER_FAILED',
         );
       }
-      return await this.persistResult(result);
+      const persistedResult = await this.persistResult(result);
+      this.latestResult = { projectId: persistedResult.projectId, result: persistedResult };
+      return persistedResult;
     } finally {
       if (this.activeScan?.scanId === scanId) {
         this.activeScan = null;
@@ -144,6 +147,11 @@ export class ScanManagementService {
         await worker.terminate().catch(() => undefined);
       }
     }
+  }
+
+  getCurrentResult(projectId: string, scanId: string): ScanResult | null {
+    const current = this.latestResult;
+    return current?.projectId === projectId && current.result.id === scanId ? current.result : null;
   }
 
   async cancel(scanId: string): Promise<{ readonly cancelled: true }> {
@@ -170,7 +178,11 @@ export class ScanManagementService {
     this.removingProjectIds.add(projectId);
     try {
       await this.history.removeProject(projectId);
-      return await removeRegistration();
+      const result = await removeRegistration();
+      if (this.latestResult?.projectId === projectId) {
+        this.latestResult = null;
+      }
+      return result;
     } finally {
       this.removingProjectIds.delete(projectId);
     }

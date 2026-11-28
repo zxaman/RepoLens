@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — Phase 4 static analysis (target v0.4.0; implementation under review)
+
+### Added
+
+- Shared Zod contracts and typed start/cancel/progress API for transient analysis results.
+- TypeScript Compiler API parser for TypeScript/TSX/JavaScript/JSX syntax, symbols, imports, exports, path-alias/local dependency classification, and diagnostics.
+- Bounded `@repolens/core` analysis over the exact current validated Phase 3 scan inventory, with cancellation, progress, source/config byte and file-count limits, result limits, and inventory-scoped file reads.
+- Electron analysis worker/session/management/IPC/preload integration; Electron main retains the latest full scan only in memory, while analysis and source contents remain transient.
+- Project-details analysis UI with progress, cancellation, searchable symbols, import/export/dependency tables, and diagnostics.
+- Emitted Electron worker smoke tests, parser/pipeline/IPC/preload/service tests, and Angular UI tests. `npm run test:electron-workers` verifies the compiled worker output paths without launching Electron's native GUI.
+- Static-analysis, architecture, security, IPC, package-structure, development, and project-status documentation updates.
+
+### Security and limitations
+
+- Analysis reads only scanned source/configuration paths, never executes project code, does not type-check or follow imports into `node_modules`, and does not write source or analysis results to persistence.
+- Analysis produces syntax relationships, not a dependency graph. Full scan inventories still inherit Phase 3's lack of an overall file-count ceiling.
+- The Electron GUI/native-picker manual launch remains unverified in the sandbox because the native binary and graphical display are unavailable.
+
 ## [Unreleased] — Phase 3 scanner (target v0.3.0)
 
 ### Added
