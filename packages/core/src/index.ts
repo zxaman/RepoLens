@@ -2,6 +2,7 @@ export type { AnalysisContext, AnalysisPipeline, Analyzer } from './pipeline/ana
 export { createAnalysisContext } from './pipeline/analysis-context.js';
 export { analyzeScan, STATIC_ANALYSIS_LIMITS } from './pipeline/static-analysis.js';
 export type { AnalyzeScanOptions } from './pipeline/static-analysis.js';
+export * from './graph/index.js';
 export type {
   AnalysisCancellation,
   ParsedDiagnostic,

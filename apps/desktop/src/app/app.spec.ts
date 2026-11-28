@@ -1,6 +1,11 @@
 import type {
   AnalysisResult,
   AppSettings,
+  GraphCycleReport,
+  GraphNodeQueryResult,
+  GraphPathResult,
+  GraphSummary,
+  GraphTraversalResult,
   Project,
   ProjectImportCommitResult,
   ProjectImportResult,
@@ -75,6 +80,16 @@ function createTestBridge(
       start: () => notImplemented<AnalysisResult>(),
       cancel: () => notImplemented<{ readonly cancelled: true }>(),
       onProgress: () => () => undefined,
+    },
+    graphs: {
+      onProgress: () => () => undefined,
+      summary: () => notImplemented<GraphSummary | null>(),
+      query: () => notImplemented<GraphNodeQueryResult | null>(),
+      dependencies: () => notImplemented<GraphTraversalResult | null>(),
+      shortestPath: () => notImplemented<GraphPathResult | null>(),
+      cycles: () => notImplemented<GraphCycleReport | null>(),
+      exportJson: () => notImplemented<string | null>(),
+      dispose: () => notImplemented<{ readonly disposed: true }>(),
     },
     settings: {
       get: () => success<AppSettings>({ ...settings }),

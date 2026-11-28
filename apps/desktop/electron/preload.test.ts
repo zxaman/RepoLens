@@ -59,7 +59,14 @@ describe('secure preload bridge', () => {
     expect(electronMocks.exposedWorld.has('ipcRenderer')).toBe(false);
 
     const api = rawApi as RepoLensAPI;
-    expect(Object.keys(api).sort()).toEqual(['analysis', 'app', 'projects', 'scans', 'settings']);
+    expect(Object.keys(api).sort()).toEqual([
+      'analysis',
+      'app',
+      'graphs',
+      'projects',
+      'scans',
+      'settings',
+    ]);
     expect(Object.keys(api.app).sort()).toEqual(['getPlatform', 'getVersion']);
     expect(Object.keys(api.projects).sort()).toEqual([
       'cancelImport',
@@ -73,6 +80,16 @@ describe('secure preload bridge', () => {
       'setActive',
     ]);
     expect(Object.keys(api.analysis).sort()).toEqual(['cancel', 'onProgress', 'start']);
+    expect(Object.keys(api.graphs).sort()).toEqual([
+      'cycles',
+      'dependencies',
+      'dispose',
+      'exportJson',
+      'onProgress',
+      'query',
+      'shortestPath',
+      'summary',
+    ]);
     expect('send' in api).toBe(false);
     expect('invoke' in api).toBe(false);
 

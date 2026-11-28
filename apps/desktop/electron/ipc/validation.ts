@@ -1,6 +1,10 @@
 import {
   appSettingsSchema,
   failureResult,
+  graphCycleQuerySchema,
+  graphDependencyQuerySchema,
+  graphNodeQuerySchema,
+  graphPathQuerySchema,
   scanConfigSchema,
   successResult,
   type Result,
@@ -24,6 +28,19 @@ export const analysisStartPayloadSchema = z
   .object({ projectId: z.uuid(), scanId: z.uuid() })
   .strict();
 export const analysisIdPayloadSchema = z.object({ analysisId: z.uuid() }).strict();
+export const graphProjectPayloadSchema = z.object({ projectId: z.uuid() }).strict();
+export const graphQueryPayloadSchema = z
+  .object({ projectId: z.uuid(), query: graphNodeQuerySchema })
+  .strict();
+export const graphDependenciesPayloadSchema = z
+  .object({ projectId: z.uuid(), query: graphDependencyQuerySchema })
+  .strict();
+export const graphPathPayloadSchema = z
+  .object({ projectId: z.uuid(), query: graphPathQuerySchema })
+  .strict();
+export const graphCyclesPayloadSchema = z
+  .object({ projectId: z.uuid(), query: graphCycleQuerySchema.optional() })
+  .strict();
 
 const payloadSchemas: Record<IpcChannel, z.ZodType> = {
   [IPC_CHANNELS.appGetVersion]: noPayloadIpcSchema,
@@ -43,6 +60,13 @@ const payloadSchemas: Record<IpcChannel, z.ZodType> = {
   [IPC_CHANNELS.scansGetLatest]: projectScanIdPayloadSchema,
   [IPC_CHANNELS.analysisStart]: analysisStartPayloadSchema,
   [IPC_CHANNELS.analysisCancel]: analysisIdPayloadSchema,
+  [IPC_CHANNELS.graphsSummary]: graphProjectPayloadSchema,
+  [IPC_CHANNELS.graphsQuery]: graphQueryPayloadSchema,
+  [IPC_CHANNELS.graphsDependencies]: graphDependenciesPayloadSchema,
+  [IPC_CHANNELS.graphsShortestPath]: graphPathPayloadSchema,
+  [IPC_CHANNELS.graphsCycles]: graphCyclesPayloadSchema,
+  [IPC_CHANNELS.graphsExportJson]: graphProjectPayloadSchema,
+  [IPC_CHANNELS.graphsDispose]: graphProjectPayloadSchema,
   [IPC_CHANNELS.settingsGet]: noPayloadIpcSchema,
   [IPC_CHANNELS.settingsUpdate]: appSettingsSchema,
   [IPC_CHANNELS.settingsReset]: noPayloadIpcSchema,

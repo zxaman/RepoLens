@@ -4,9 +4,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_SCAN_CONFIG } from '@repolens/shared';
+import { InMemoryGraphProvider } from '@repolens/core';
 import { createRepoLensAPI } from '../apps/desktop/dist/electron/ipc/bridge.js';
 import { registerIpcHandlers } from '../apps/desktop/dist/electron/ipc/register-ipc.js';
 import { AnalysisManagementService } from '../apps/desktop/dist/electron/services/analysis-management.service.js';
+import { GraphManagementService } from '../apps/desktop/dist/electron/services/graph-management.service.js';
 import { AppSettingsService } from '../apps/desktop/dist/electron/services/app-settings.service.js';
 import { JsonProjectRepository } from '../apps/desktop/dist/electron/services/json-project-repository.js';
 import { JsonScanHistoryRepository } from '../apps/desktop/dist/electron/services/json-scan-history-repository.js';
@@ -57,6 +59,7 @@ function createBridge(services) {
     services.settings,
     services.scans,
     services.analyses,
+    services.graphs,
   );
 
   return createRepoLensAPI(
@@ -121,11 +124,19 @@ try {
     services.projects,
     new JsonScanHistoryRepository(historyPath),
   );
-  const initialAnalyses = new AnalysisManagementService(services.projects, initialScans);
+  const initialGraphProvider = new InMemoryGraphProvider();
+  const initialAnalyses = new AnalysisManagementService(
+    services.projects,
+    initialScans,
+    undefined,
+    initialGraphProvider,
+  );
+  const initialGraphs = new GraphManagementService(services.projects, initialGraphProvider);
   const initialBridge = createBridge({
     ...services,
     scans: initialScans,
     analyses: initialAnalyses,
+    graphs: initialGraphs,
   });
   const selection = unwrap(await initialBridge.projects.importFolder());
   assert.equal(selection.kind, 'selected', 'an ordinary folder should be selectable');
@@ -160,8 +171,15 @@ try {
 
   const history = new JsonScanHistoryRepository(historyPath);
   const scans = new ScanManagementService(restarted.projects, history);
-  const analyses = new AnalysisManagementService(restarted.projects, scans);
-  const bridge = createBridge({ ...restarted, scans, analyses });
+  const graphProvider = new InMemoryGraphProvider();
+  const analyses = new AnalysisManagementService(
+    restarted.projects,
+    scans,
+    undefined,
+    graphProvider,
+  );
+  const graphs = new GraphManagementService(restarted.projects, graphProvider);
+  const bridge = createBridge({ ...restarted, scans, analyses, graphs });
   const scanProgress = [];
   const unsubscribeScanProgress = bridge.scans.onProgress((progress) => {
     scanProgress.push(progress.phase);
@@ -186,11 +204,16 @@ try {
   );
 
   const analysisProgress = [];
+  const graphProgress = [];
   const unsubscribeAnalysisProgress = bridge.analysis.onProgress((progress) => {
     analysisProgress.push(progress.phase);
   });
+  const unsubscribeGraphProgress = bridge.graphs.onProgress((progress) => {
+    graphProgress.push(progress.phase);
+  });
   const analysis = unwrap(await bridge.analysis.start(project.id, scan.id));
   unsubscribeAnalysisProgress();
+  unsubscribeGraphProgress();
   assert.equal(analysis.status, 'completed');
   assert.equal(analysis.filesAnalyzed, 2);
   assert.ok(analysis.symbols.some((symbol) => symbol.name === 'greet'));
@@ -203,6 +226,48 @@ try {
   );
   assert.ok(analysisProgress.includes('initializing'));
   assert.ok(analysisProgress.includes('finalizing'));
+  assert.ok(graphProgress.includes('nodes'));
+  assert.ok(graphProgress.includes('edges'));
+  assert.ok(graphProgress.includes('metrics'));
+
+  const graphSummary = unwrap(await bridge.graphs.summary(project.id));
+  assert.equal(graphSummary.analysisId, analysis.analysisId);
+  assert.equal(graphSummary.scanId, scan.id);
+  assert.equal(graphSummary.metrics.fileCount, 2);
+  assert.equal(graphSummary.metrics.dependencyEdgeCount, 1);
+  assert.ok(graphSummary.metrics.symbolCount >= 2);
+  const graphFunctions = unwrap(
+    await bridge.graphs.query(project.id, { types: ['function'], name: 'greet' }),
+  );
+  assert.ok(graphFunctions.nodes.some((node) => node.name === 'greet'));
+  const graphDependencies = unwrap(
+    await bridge.graphs.dependencies(project.id, {
+      relativePath: 'src/index.ts',
+      direction: 'dependencies',
+      depth: 1,
+    }),
+  );
+  assert.deepEqual(graphDependencies.files, [{ relativePath: 'src/helper.ts', distance: 1 }]);
+  assert.deepEqual(
+    unwrap(
+      await bridge.graphs.shortestPath(project.id, {
+        fromPath: 'src/index.ts',
+        toPath: 'src/helper.ts',
+      }),
+    ).filePaths,
+    ['src/index.ts', 'src/helper.ts'],
+  );
+  const graphCycles = unwrap(await bridge.graphs.cycles(project.id));
+  assert.deepEqual(graphCycles.cycles, []);
+  const graphJson = unwrap(await bridge.graphs.exportJson(project.id));
+  const graphExport = JSON.parse(graphJson);
+  assert.equal(graphExport.schemaVersion, '1.0.0');
+  assert.equal(graphExport.analysisId, analysis.analysisId);
+  assert.equal(
+    graphExport.nodes.some((node) => node.type === 'file'),
+    true,
+  );
+  assert.equal(graphJson.includes('Graphology'), false);
 
   // Cancellation is exercised through the same scan service and real worker used by Electron.
   await mkdir(cancellationProjectPath);
@@ -244,6 +309,11 @@ try {
 
   // The IPC removal path removes only RepoLens registration/history, never the original folder.
   unwrap(await bridge.projects.remove(project.id));
+  assert.equal(
+    graphProvider.get(project.id),
+    null,
+    'project removal should dispose its in-memory graph',
+  );
   assert.equal(await restarted.projects.getById(project.id), null);
   assert.equal(await new JsonScanHistoryRepository(historyPath).getLatest(project.id), null);
   assert.equal((await readFile(sourceFiles[0], 'utf8')).startsWith('import '), true);

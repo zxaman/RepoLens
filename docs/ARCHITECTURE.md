@@ -13,7 +13,8 @@ Electron ESM main (sender checks, Zod request validation, CSP)
    ├── ProjectManagementService ──► native folder picker / JSON project registry
    ├── AppSettingsService ────────► JSON settings file
    ├── ScanManagementService ─────► bounded JSON summaries + latest full scan in memory
-   └── AnalysisManagementService ─► transient analysis lifecycle
+   ├── AnalysisManagementService ─► transient analysis + graph-build lifecycle
+   └── GraphManagementService ────► project-keyed in-memory Graphology provider
              │ start/cancel                     │ start/cancel
              ▼                                  ▼
     Scan worker thread                Analysis worker thread
@@ -23,6 +24,9 @@ Electron ESM main (sender checks, Zod request validation, CSP)
                                                  │ TypeScript Compiler API
                                                  ▼
                                         @repolens/language-support
+                                                 │ AnalysisResult
+                                                 ▼
+                                        @repolens/core graph engine
 
 RepoLens CLI ─────────────────────► @repolens/core (foundation; no scan command)
 Angular renderer ─────────────────► @repolens/shared
@@ -32,11 +36,11 @@ There is no separate backend server. The Angular dev server is used only for ren
 
 ## Package boundaries
 
-- `apps/desktop/src` is browser code. It imports neither Node.js filesystem APIs nor Electron modules. Project, scan, and static-analysis operations go through the typed preload bridge.
+- `apps/desktop/src` is browser code. It imports neither Node.js filesystem APIs nor Electron modules. Project, scan, static-analysis, and graph operations go through the typed preload bridge; no renderer code receives a Graphology instance.
 - `apps/desktop/electron` is the trusted local application layer. The ESM main process owns the native folder picker, path validation, worker lifecycle, Node filesystem adapters, IPC, and local persistence; the sandboxed preload is emitted as CommonJS (`preload.cjs`).
 - `apps/cli` is a Node.js executable foundation; it currently exposes version/help only and does not scan projects.
-- `packages/shared` owns Zod-validated project, scan, static-analysis, import, settings, progress, history, and result contracts. It has no application-layer dependencies.
-- `packages/core` contains the reusable scanner engine and bounded static-analysis pipeline. The scanner and analyzer depend on narrow filesystem/parser interfaces and shared schemas, not Angular or Electron.
+- `packages/shared` owns Zod-validated project, scan, static-analysis, import, settings, graph DTO/query/export/progress, history, and result contracts. It has no application-layer dependencies.
+- `packages/core` contains the reusable scanner engine, bounded static-analysis pipeline, and in-memory graph engine. The scanner/analyzer use narrow filesystem/parser interfaces; graph algorithms consume shared `AnalysisResult` data. Core has no Angular, Electron, Cytoscape, or visualization dependency.
 - `packages/language-support` implements the parser extension point with a TypeScript Compiler API parser for TypeScript/TSX/JavaScript/JSX syntax.
 - `packages/database` defines the Drizzle/SQLite connection boundary; it has no schema, driver initialization, migrations, or persistence operations yet.
 - `packages/export` defines future export contracts and stays separate from the UI.
@@ -72,24 +76,26 @@ The scanner never executes repository code, package scripts, shell commands, or 
 2. Main creates a one-shot analysis worker and sends the project root and validated scan inventory. The worker checks the request, and `NodeAnalysisFileSystem` accepts only normalized relative paths present in the inventory and contained by the registered root.
 3. `@repolens/core` selects eligible TypeScript/JavaScript source files, applies file/count/byte/result/config limits, and calls the registered `TypeScriptParser` from `@repolens/language-support`. Resolution is restricted to scanned file paths and scanned `tsconfig` baseUrl/path aliases; ambiguous targets are not guessed.
 4. The worker sends schema-validated progress and a validated `AnalysisResult`. Cancellation is cooperative at async work boundaries. Main returns the result to the renderer but does not persist it or the source text.
-5. The project-details page holds analysis results only in its component state and clears them on navigation. The latest full scan and analysis/source contents are application-memory only; saved scan history remains summary-only.
+5. For `completed` or `partial` results, `AnalysisManagementService` starts a new project-keyed graph-build lease, invalidating the previous graph, then calls the asynchronous `buildProjectGraph` engine. The engine uses only the validated shared result; it batches Graphology insertion/metrics/SCC work and accepts cancellation, progress, and a host-provided event-loop yield. The provider publishes only if the lease is still current.
+6. `GraphManagementService` exposes schema-validated DTO queries, traversal, paths, cycles, metrics, and JSON through guarded IPC. The bridge never serializes a Graphology instance. The renderer has graph API access but no graph visualization/Architecture Explorer UI.
 
-Analysis is syntax extraction, not type checking or program execution. Its bounded behavior and explicit non-goals are documented in [Static Analysis](STATIC_ANALYSIS.md).
+Analysis is syntax extraction, not type checking or program execution. Phase 5 creates only evidence-backed containment, import, and export relationships; it does not infer calls, inheritance, API routes, or database models. See [Static Analysis](STATIC_ANALYSIS.md) and [Graph Engine](GRAPH_ENGINE.md).
 
 ## Persistence and settings
 
 - `JsonProjectRepository` implements `ProjectRepository` and stores a version-1 registry at `app.getPath('userData')/project-registry.json`. The registry contains projects and the active project ID.
 - `JsonSettingsRepository` implements a separate `SettingsRepository` and stores `settings.json` in the same application-data directory.
-- `JsonScanHistoryRepository` stores a versioned `scan-history.json`, with at most 50 validated summary items per project. Full file lists and hashes are not persisted. `ScanManagementService` retains only the latest full scan result in memory so Phase 4 can reuse it; analysis results and source text are never persisted.
+- `JsonScanHistoryRepository` stores a versioned `scan-history.json`, with at most 50 validated summary items per project. Full file lists and hashes are not persisted. `ScanManagementService` retains only the latest full scan result in memory so Phase 4 can reuse it; analysis results, source text, and graph data are never persisted.
+- `InMemoryGraphProvider` retains a bounded set of latest project graphs in process memory (default maximum 50 entries and six-hour inactivity/age limit). New analyses invalidate the prior graph; project removal and app shutdown dispose graphs. No Graphology graph is stored in the JSON registry/history or a database.
 - Writes use a unique same-directory temporary file, restrictive file permissions, file sync, and rename. Malformed or schema-invalid JSON is moved to a timestamped quarantine path before the service falls back to safe defaults.
 - These interfaces are the replacement seam for future persistence. SQLite/Drizzle and JSON-to-SQLite migration are not implemented.
 - The saved theme is applied to the document root; a `system` preference defers to the operating system color-scheme preference. A configured default project is selected at application startup, but this does not trigger a scan.
 
 ## Shared contracts and IPC
 
-`packages/shared` defines strict project, import-preview/result, settings, scan config/file/result/progress/history, analysis result/progress, and app-error schemas. Main validates every request; the preload validates every response and progress event before passing it to Angular. IPC channels and payload shapes are fixed and allowlisted; sender frame and top-level main-frame URLs must match the trusted renderer.
+`packages/shared` defines strict project, import-preview/result, settings, scan config/file/result/progress/history, analysis result/progress, graph node/edge/query/metrics/export/progress, and app-error schemas. Main validates every request; the preload validates every response and progress event before passing it to Angular. IPC channels and payload shapes are fixed and allowlisted; sender frame and top-level main-frame URLs must match the trusted renderer.
 
-The renderer receives only project IDs and scan/analysis IDs plus scan options. Filesystem paths remain in the registry/main process. Scan and analysis progress APIs return disposers; they do not expose `ipcRenderer`, arbitrary channels, or unrestricted event listeners. See [IPC architecture](IPC_ARCHITECTURE.md) for the complete API, boundary, and window protections.
+The renderer receives only project/scan/analysis IDs, normalized project-relative graph queries, and scan options. Filesystem paths remain in the registry/main process. Scan, analysis, and graph progress APIs return disposers; they do not expose `ipcRenderer`, Graphology, arbitrary channels, or unrestricted event listeners. Graph progress is sent only to the renderer that initiated `analysis.start`. See [IPC architecture](IPC_ARCHITECTURE.md) for the complete API, boundary, and window protections.
 
 ## Angular migration
 

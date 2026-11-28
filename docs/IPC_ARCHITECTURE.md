@@ -8,14 +8,16 @@ The Angular renderer has no Node integration. `electron/preload.ts` exposes a fr
 2. Preload invokes a fixed channel from `electron/security/ipc-channels.ts`.
 3. Electron main verifies that the invoking frame and top-level main frame are the trusted local renderer or exact packaged renderer file.
 4. Main validates the channel and exact payload shape against the allowlist and Zod request schema, then calls a narrow service.
-5. Project, settings, scan, and analysis operations return shared `Result<T>` contracts with user-safe errors. App metadata returns validated version/platform values.
+5. Project, settings, scan, analysis, and graph operations return shared `Result<T>` contracts with user-safe errors. App metadata returns validated version/platform values.
 6. Preload validates every result or metadata response with shared runtime schemas before resolving it to Angular.
 
 The renderer cannot provide a folder path. `projects.importFolder()` opens Electron's native directory picker; Electron resolves and validates the selected location and holds a short-lived selection token while the user reviews a preview. Registration is completed through `projects.confirmImport(selectionId)`.
 
 For scans, Angular sends a registered `projectId` and optional strict `ScanConfig`. Main loads the trusted root path from the project registry, checks that the project still exists, enforces one active scan, and starts an Electron worker thread. File paths never come from renderer input. A separate `scans:cancel` request accepts only a UUID scan ID.
 
-For static analysis, Angular sends only the registered `projectId` and the `scanId` it wants analyzed. Main requires that exact full `ScanResult` to still be the latest in-memory result for that project, then starts an analysis worker with the trusted project root and validated inventory. The worker's filesystem adapter allows reads only for normalized paths in that inventory. Analysis results are returned to the renderer and are not persisted; `analysis:cancel` accepts only a UUID analysis ID.
+For static analysis, Angular sends only the registered `projectId` and the `scanId` it wants analyzed. Main requires that exact full `ScanResult` to still be the latest in-memory result for that project, then starts an analysis worker with the trusted project root and validated inventory. The worker's filesystem adapter allows reads only for normalized paths in that inventory. After a completed/partial result returns, main builds and publishes an in-memory graph under a revision lease; graph progress is scoped to the invoking renderer. Analysis results and graph data are not persisted; `analysis:cancel` accepts only a UUID analysis ID and can cancel either active worker analysis or graph construction.
+
+Graph queries send only a registered `projectId` plus strict, normalized relative-path/query values. Main checks that the project remains registered and returns shared DTOs or deterministic validated JSON, never a Graphology object. Graph operations do not accept filesystem roots or arbitrary file paths.
 
 ## Approved API surface
 
@@ -31,15 +33,18 @@ For static analysis, Angular sends only the registered `projectId` and the `scan
 - `analysis.start(projectId, scanId)` reuses the exact latest full in-memory scan result and returns the validated syntax-analysis result. It never starts a second scan or reads a summary as a substitute.
 - `analysis.cancel(analysisId)` requests cooperative worker cancellation and returns a structured acknowledgement; the final result reports whether cancellation or completion won the race.
 - `analysis.onProgress(callback)` subscribes only to the approved `analysis:progress` event and returns a cleanup function. Main sends progress only to the renderer that initiated the analysis; malformed progress is dropped.
+- `graphs.summary(projectId)`, `query(projectId, query)`, `dependencies(projectId, query)`, `shortestPath(projectId, query)`, and `cycles(projectId, query?)` return validated DTOs or `null` if no current graph is published.
+- `graphs.exportJson(projectId)` returns a validated deterministic JSON string or `null`; `graphs.dispose(projectId)` clears the in-memory graph. No GraphML or graph file-save operation is exposed.
+- `graphs.onProgress(callback)` subscribes only to the approved `graphs:progress` event during graph construction and returns a cleanup function. Main sends progress only to the initiating renderer; malformed progress is dropped and listener exceptions are isolated.
 
-No graph, export, database, or AI IPC channels are registered until those operations exist. Static AST analysis is implemented as Phase 4; Phase 5 graph construction remains future work. Project import/open/refresh does not start a scan.
+Phase 5 graph construction is available through the core engine and secure bridge, but it does not add a graph visualization UI. Project import/open/refresh does not start a scan. See [Graph Engine](GRAPH_ENGINE.md) for its limits, node/edge semantics, algorithms, and explicit non-goals.
 
 ## Validation and errors
 
 - Main validates channel names, exact payload objects, UUID project/scan/analysis IDs, strict settings, scan options, and sensitive-file risk acknowledgement before invoking services.
 - Worker messages/results and progress are parsed against the shared schemas. Preload validates main-process responses and progress events before Angular receives them.
 - Known filesystem, project, scan/analysis-concurrency, unavailable-inventory, and lifecycle errors map to structured, user-safe `AppError` values. Unexpected errors are logged in the main process and return a generic message without exposing stack traces or file contents.
-- IPC from an untrusted frame is rejected before payload handling. Progress-listener exceptions cannot interrupt scanning or analysis.
+- IPC from an untrusted frame is rejected before payload handling. Scan, analysis, or graph progress-listener exceptions cannot interrupt their work.
 
 ## Window protections
 

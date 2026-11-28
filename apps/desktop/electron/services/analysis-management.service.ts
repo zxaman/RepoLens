@@ -1,5 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { analysisResultSchema } from '@repolens/shared';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import {
+  buildProjectGraph,
+  GraphBuildCancelledError,
+  InMemoryGraphProvider,
+  type GraphBuildLease,
+} from '@repolens/core';
+import {
+  analysisResultSchema,
+  graphBuildProgressSchema,
+  type GraphBuildProgress,
+} from '@repolens/shared';
 import type { AnalysisProgress, AnalysisResult } from '@repolens/shared';
 import type { ProjectManagementService } from './project-management.service.js';
 import { safeErrorDetails } from './diagnostic-logging.js';
@@ -16,10 +27,13 @@ interface ActiveAnalysis {
   readonly projectId: string;
   readonly scanId: string;
   readonly worker: AnalysisWorkerSession;
+  readonly graphCancellation: { aborted: boolean };
+  graphBuilding: boolean;
 }
 
 export type AnalysisWorkerFactory = () => AnalysisWorkerSession;
 export type AnalysisProgressSink = (progress: AnalysisProgress) => void;
+export type GraphProgressSink = (progress: GraphBuildProgress) => void;
 
 /** Coordinates one ephemeral analysis worker; no source or analysis result is persisted. */
 export class AnalysisManagementService {
@@ -33,12 +47,14 @@ export class AnalysisManagementService {
     private readonly scans: ScanManagementService,
     private readonly createWorker: AnalysisWorkerFactory = () =>
       new ElectronAnalysisWorkerSession(),
+    private readonly graphProvider: InMemoryGraphProvider = new InMemoryGraphProvider(),
   ) {}
 
   async start(
     projectId: string,
     scanId: string,
     progressSink: AnalysisProgressSink,
+    graphProgressSink: GraphProgressSink = () => undefined,
   ): Promise<AnalysisResult> {
     if (
       this.startingAnalysis ||
@@ -54,6 +70,8 @@ export class AnalysisManagementService {
     this.startingProjectId = projectId;
 
     let worker: AnalysisWorkerSession | null = null;
+    let graphBuildLease: GraphBuildLease | null = null;
+    let graphPublished = false;
     const analysisId = randomUUID();
     try {
       const project = await this.projects.getById(projectId);
@@ -75,6 +93,8 @@ export class AnalysisManagementService {
         );
       }
 
+      graphBuildLease = this.graphProvider.beginBuild(projectId, analysisId);
+
       try {
         worker = this.createWorker();
       } catch (error) {
@@ -85,7 +105,14 @@ export class AnalysisManagementService {
         throw new ServiceError('INTERNAL_ERROR', 'RepoLens could not start the analysis worker.');
       }
 
-      this.activeAnalysis = { analysisId, projectId, scanId, worker };
+      this.activeAnalysis = {
+        analysisId,
+        projectId,
+        scanId,
+        worker,
+        graphCancellation: { aborted: false },
+        graphBuilding: false,
+      };
       this.startingAnalysis = false;
       this.startingProjectId = null;
       try {
@@ -108,14 +135,72 @@ export class AnalysisManagementService {
         scan,
       };
       try {
-        return analysisResultSchema.parse(await worker.run(input, progressSink));
-      } catch {
+        const result = analysisResultSchema.parse(await worker.run(input, progressSink));
+        if (
+          result.analysisId !== analysisId ||
+          result.projectId !== projectId ||
+          result.scanId !== scanId
+        ) {
+          throw new Error('The analysis worker returned results for a different operation.');
+        }
+        if (result.status === 'completed' || result.status === 'partial') {
+          if (graphBuildLease === null) {
+            throw new Error('The graph lifecycle lease was not initialized.');
+          }
+          const active = this.activeAnalysis;
+          if (active === null || active.analysisId !== analysisId) {
+            throw new Error('The graph build is no longer associated with the active analysis.');
+          }
+          active.graphBuilding = true;
+          try {
+            const graph = await buildProjectGraph(result, {
+              signal: active.graphCancellation,
+              onProgress: graphProgressSink,
+              yieldToEventLoop: () => yieldToEventLoop(),
+            });
+            graphPublished = this.graphProvider.publish(graphBuildLease, graph);
+          } catch (error) {
+            if (!(error instanceof GraphBuildCancelledError)) {
+              throw error;
+            }
+            this.graphProvider.fail(graphBuildLease);
+            const cancelledProgress = graphBuildProgressSchema.parse({
+              analysisId,
+              scanId,
+              projectId,
+              phase: 'cancelled',
+              processed: 0,
+              total: 0,
+              percentage: 0,
+            });
+            try {
+              graphProgressSink(cancelledProgress);
+            } catch {
+              // A progress observer cannot interfere with graph cleanup.
+            }
+            return result;
+          } finally {
+            active.graphBuilding = false;
+          }
+        }
+        return result;
+      } catch (error) {
+        if (graphBuildLease !== null) {
+          this.graphProvider.fail(graphBuildLease);
+        }
+        console.error(
+          'RepoLens could not finalize static analysis and its graph.',
+          safeErrorDetails(error, [project.rootPath]),
+        );
         throw new ServiceError(
           'INTERNAL_ERROR',
           'RepoLens could not complete static analysis. Run a new scan and try again.',
         );
       }
     } finally {
+      if (graphBuildLease !== null && !graphPublished) {
+        this.graphProvider.fail(graphBuildLease);
+      }
       if (this.activeAnalysis?.analysisId === analysisId) {
         this.activeAnalysis = null;
       }
@@ -129,7 +214,17 @@ export class AnalysisManagementService {
 
   async cancel(analysisId: string): Promise<{ readonly cancelled: true }> {
     const active = this.activeAnalysis;
-    if (active === null || active.analysisId !== analysisId || active.worker.finished) {
+    if (active === null || active.analysisId !== analysisId) {
+      throw new ServiceError('ANALYSIS_NOT_RUNNING', 'That static analysis is no longer running.');
+    }
+    if (active.graphBuilding) {
+      if (active.graphCancellation.aborted) {
+        throw new ServiceError('ANALYSIS_NOT_RUNNING', 'That graph build is already cancelling.');
+      }
+      active.graphCancellation.aborted = true;
+      return { cancelled: true };
+    }
+    if (active.worker.finished) {
       throw new ServiceError('ANALYSIS_NOT_RUNNING', 'That static analysis is no longer running.');
     }
     active.worker.cancel();
@@ -150,7 +245,18 @@ export class AnalysisManagementService {
 
     this.removingProjectIds.add(projectId);
     try {
-      return await removeRegistration();
+      const result = await removeRegistration();
+      this.graphProvider.disposeProject(projectId);
+      return result;
+    } catch (error) {
+      try {
+        if ((await this.projects.getById(projectId)) === null) {
+          this.graphProvider.disposeProject(projectId);
+        }
+      } catch {
+        // Preserve the graph when registration status cannot be established safely.
+      }
+      throw error;
     } finally {
       this.removingProjectIds.delete(projectId);
     }

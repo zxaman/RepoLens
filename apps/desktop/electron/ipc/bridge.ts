@@ -2,6 +2,14 @@ import {
   analysisProgressSchema,
   analysisResultSchema,
   appErrorSchema,
+  graphBuildProgressSchema,
+  graphCycleReportSchema,
+  graphDisposeResultSchema,
+  graphExportJsonSchema,
+  graphNodeQueryResultSchema,
+  graphPathResultSchema,
+  graphSummarySchema,
+  graphTraversalResultSchema,
   appSettingsSchema,
   projectImportCommitResultSchema,
   projectImportResultSchema,
@@ -11,6 +19,11 @@ import {
   scanResultSchema,
   type AnalysisProgress,
   type AppSettings,
+  type GraphBuildProgress,
+  type GraphCycleQuery,
+  type GraphDependencyQuery,
+  type GraphNodeQuery,
+  type GraphPathQuery,
   type RepoLensAPI,
   type Result,
   type ScanConfig,
@@ -40,6 +53,12 @@ const projectRemovalSchema = z.object({ removed: z.literal(true) }).strict();
 const cancelledOperationSchema = z.object({ cancelled: z.literal(true) }).strict();
 const scanHistoryItemListSchema = z.array(scanHistoryItemSchema).readonly();
 const scanHistoryItemNullableSchema = scanHistoryItemSchema.nullable();
+const graphSummaryNullableSchema = graphSummarySchema.nullable();
+const graphNodeQueryResultNullableSchema = graphNodeQueryResultSchema.nullable();
+const graphTraversalResultNullableSchema = graphTraversalResultSchema.nullable();
+const graphPathResultNullableSchema = graphPathResultSchema.nullable();
+const graphCycleReportNullableSchema = graphCycleReportSchema.nullable();
+const graphExportJsonNullableSchema = graphExportJsonSchema.nullable();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -178,6 +197,59 @@ export function createRepoLensAPI(invoker: IpcInvoker, eventSource?: IpcEventSou
           }
         });
       },
+    }),
+    graphs: Object.freeze({
+      onProgress: (callback: (progress: GraphBuildProgress) => void) => {
+        if (typeof callback !== 'function') {
+          throw new TypeError('A graph-build progress callback must be a function.');
+        }
+        if (eventSource === undefined) {
+          return () => undefined;
+        }
+        return eventSource.subscribe(IPC_EVENTS.graphsProgress, (value) => {
+          const progress = graphBuildProgressSchema.safeParse(value);
+          if (!progress.success) {
+            return;
+          }
+          try {
+            callback(progress.data);
+          } catch {
+            // Renderer listeners cannot interrupt graph construction.
+          }
+        });
+      },
+      summary: (projectId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsSummary, graphSummaryNullableSchema, {
+          projectId,
+        }),
+      query: (projectId: string, query: GraphNodeQuery) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsQuery, graphNodeQueryResultNullableSchema, {
+          projectId,
+          query,
+        }),
+      dependencies: (projectId: string, query: GraphDependencyQuery) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsDependencies, graphTraversalResultNullableSchema, {
+          projectId,
+          query,
+        }),
+      shortestPath: (projectId: string, query: GraphPathQuery) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsShortestPath, graphPathResultNullableSchema, {
+          projectId,
+          query,
+        }),
+      cycles: (projectId: string, query: GraphCycleQuery = {}) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsCycles, graphCycleReportNullableSchema, {
+          projectId,
+          query,
+        }),
+      exportJson: (projectId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsExportJson, graphExportJsonNullableSchema, {
+          projectId,
+        }),
+      dispose: (projectId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsDispose, graphDisposeResultSchema, {
+          projectId,
+        }),
     }),
     settings: Object.freeze({
       get: () => invokeResult(invoker, IPC_CHANNELS.settingsGet, appSettingsSchema),
