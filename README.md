@@ -41,8 +41,11 @@ npm test
 npm run lint
 npm run format:check
 
-# Browser-only renderer development; project/settings APIs need Electron
-npm run dev:web
+# Start Angular directly from the repository root; project/settings APIs need Electron
+ng serve
+
+# Optional npm alias for the same command
+npm start
 
 # Desktop app with the Angular dev server (requires Electron's native binary and a display)
 npm run dev:desktop
