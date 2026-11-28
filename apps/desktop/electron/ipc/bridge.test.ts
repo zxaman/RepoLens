@@ -119,6 +119,66 @@ describe('secure analysis and scan preload APIs', () => {
     ]);
   });
 
+  it('exposes a narrow graph API with typed payloads and schema-validated JSON export', async () => {
+    const invocations: Array<{ channel: IpcChannel; payload?: object }> = [];
+    const api = createRepoLensAPI({
+      invoke: async (channel, payload) => {
+        invocations.push({ channel, ...(payload === undefined ? {} : { payload }) });
+        return {
+          ok: true,
+          data: channel === IPC_CHANNELS.graphsDispose ? { disposed: true } : null,
+        };
+      },
+    });
+
+    await expect(api.graphs.summary(projectId)).resolves.toEqual({ ok: true, data: null });
+    await expect(
+      api.graphs.query(projectId, { types: ['file'], pathPrefix: 'src', limit: 10 }),
+    ).resolves.toEqual({ ok: true, data: null });
+    await expect(
+      api.graphs.dependencies(projectId, {
+        relativePath: 'src/index.ts',
+        direction: 'dependencies',
+        depth: 2,
+      }),
+    ).resolves.toEqual({ ok: true, data: null });
+    await expect(
+      api.graphs.shortestPath(projectId, { fromPath: 'src/index.ts', toPath: 'src/helper.ts' }),
+    ).resolves.toEqual({ ok: true, data: null });
+    await expect(api.graphs.cycles(projectId)).resolves.toEqual({ ok: true, data: null });
+    await expect(api.graphs.exportJson(projectId)).resolves.toEqual({ ok: true, data: null });
+    await expect(api.graphs.dispose(projectId)).resolves.toEqual({
+      ok: true,
+      data: { disposed: true },
+    });
+    expect(invocations).toEqual([
+      { channel: IPC_CHANNELS.graphsSummary, payload: { projectId } },
+      {
+        channel: IPC_CHANNELS.graphsQuery,
+        payload: { projectId, query: { types: ['file'], pathPrefix: 'src', limit: 10 } },
+      },
+      {
+        channel: IPC_CHANNELS.graphsDependencies,
+        payload: {
+          projectId,
+          query: { relativePath: 'src/index.ts', direction: 'dependencies', depth: 2 },
+        },
+      },
+      {
+        channel: IPC_CHANNELS.graphsShortestPath,
+        payload: { projectId, query: { fromPath: 'src/index.ts', toPath: 'src/helper.ts' } },
+      },
+      { channel: IPC_CHANNELS.graphsCycles, payload: { projectId, query: {} } },
+      { channel: IPC_CHANNELS.graphsExportJson, payload: { projectId } },
+      { channel: IPC_CHANNELS.graphsDispose, payload: { projectId } },
+    ]);
+
+    const invalidExportApi = createRepoLensAPI({
+      invoke: async () => ({ ok: true, data: '{"schemaVersion":"1.0.0"}' }),
+    });
+    await expect(invalidExportApi.graphs.exportJson(projectId)).rejects.toThrow();
+  });
+
   it('validates progress events, isolates listener errors, and releases the subscription', () => {
     let subscribedChannel: IpcEventChannel | null = null;
     let eventListener: ((payload: unknown) => void) | null = null;
@@ -155,6 +215,41 @@ describe('secure analysis and scan preload APIs', () => {
     expect(callback).toHaveBeenCalledWith(progress);
     expect(() => cleanup()).not.toThrow();
     expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('validates graph-build progress through only its approved event', () => {
+    let subscribedChannel: IpcEventChannel | null = null;
+    let eventListener: ((payload: unknown) => void) | null = null;
+    const cleanup = vi.fn();
+    const callback = vi.fn();
+    const api = createRepoLensAPI(
+      { invoke: async () => ({ ok: true, data: null }) },
+      {
+        subscribe: (channel, listener) => {
+          subscribedChannel = channel;
+          eventListener = listener;
+          return cleanup;
+        },
+      },
+    );
+    const unsubscribe = api.graphs.onProgress(callback);
+    const progress = {
+      analysisId: analysisResult.analysisId,
+      scanId,
+      projectId,
+      phase: 'nodes',
+      processed: 2,
+      total: 4,
+      percentage: 50,
+    };
+
+    expect(subscribedChannel).toBe(IPC_EVENTS.graphsProgress);
+    eventListener?.(progress);
+    eventListener?.({ ...progress, processed: 5 });
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback).toHaveBeenCalledWith(progress);
+    unsubscribe();
+    expect(cleanup).toHaveBeenCalledOnce();
   });
 
   it('validates static-analysis progress through only its approved event', () => {

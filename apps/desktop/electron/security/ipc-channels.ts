@@ -1,4 +1,11 @@
-import type { AppSettings, ScanConfig } from '@repolens/shared';
+import type {
+  AppSettings,
+  GraphCycleQuery,
+  GraphDependencyQuery,
+  GraphNodeQuery,
+  GraphPathQuery,
+  ScanConfig,
+} from '@repolens/shared';
 
 export const IPC_CHANNELS = {
   appGetVersion: 'app:get-version',
@@ -18,6 +25,13 @@ export const IPC_CHANNELS = {
   scansGetLatest: 'scans:get-latest',
   analysisStart: 'analysis:start',
   analysisCancel: 'analysis:cancel',
+  graphsSummary: 'graphs:summary',
+  graphsQuery: 'graphs:query',
+  graphsDependencies: 'graphs:dependencies',
+  graphsShortestPath: 'graphs:shortest-path',
+  graphsCycles: 'graphs:cycles',
+  graphsExportJson: 'graphs:export-json',
+  graphsDispose: 'graphs:dispose',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsReset: 'settings:reset',
@@ -26,6 +40,7 @@ export const IPC_CHANNELS = {
 export const IPC_EVENTS = {
   scansProgress: 'scans:progress',
   analysisProgress: 'analysis:progress',
+  graphsProgress: 'graphs:progress',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
@@ -60,6 +75,19 @@ export interface IpcPayloadByChannel {
   [IPC_CHANNELS.scansGetLatest]: { readonly projectId: string };
   [IPC_CHANNELS.analysisStart]: { readonly projectId: string; readonly scanId: string };
   [IPC_CHANNELS.analysisCancel]: { readonly analysisId: string };
+  [IPC_CHANNELS.graphsSummary]: { readonly projectId: string };
+  [IPC_CHANNELS.graphsQuery]: { readonly projectId: string; readonly query: GraphNodeQuery };
+  [IPC_CHANNELS.graphsDependencies]: {
+    readonly projectId: string;
+    readonly query: GraphDependencyQuery;
+  };
+  [IPC_CHANNELS.graphsShortestPath]: { readonly projectId: string; readonly query: GraphPathQuery };
+  [IPC_CHANNELS.graphsCycles]: {
+    readonly projectId: string;
+    readonly query?: GraphCycleQuery;
+  };
+  [IPC_CHANNELS.graphsExportJson]: { readonly projectId: string };
+  [IPC_CHANNELS.graphsDispose]: { readonly projectId: string };
   [IPC_CHANNELS.settingsGet]: undefined;
   [IPC_CHANNELS.settingsUpdate]: AppSettings;
   [IPC_CHANNELS.settingsReset]: undefined;

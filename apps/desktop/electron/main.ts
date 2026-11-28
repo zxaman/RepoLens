@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { registerIpcHandlers } from './ipc/register-ipc.js';
 import { AnalysisManagementService } from './services/analysis-management.service.js';
+import { GraphManagementService } from './services/graph-management.service.js';
+import { InMemoryGraphProvider } from '@repolens/core';
 import { AppSettingsService } from './services/app-settings.service.js';
 import { JsonProjectRepository } from './services/json-project-repository.js';
 import { JsonSettingsRepository } from './services/json-settings-repository.js';
@@ -152,8 +154,16 @@ void app
       join(userDataDirectory, 'scan-history.json'),
     );
     const scanService = new ScanManagementService(projectService, scanHistoryRepository);
-    const analysisService = new AnalysisManagementService(projectService, scanService);
+    const graphProvider = new InMemoryGraphProvider();
+    const analysisService = new AnalysisManagementService(
+      projectService,
+      scanService,
+      undefined,
+      graphProvider,
+    );
+    const graphService = new GraphManagementService(projectService, graphProvider);
 
+    app.on('before-quit', () => graphProvider.dispose());
     installContentSecurityPolicy(rendererTarget.developmentUrl !== null);
     registerIpcHandlers(
       ipcMain,
@@ -169,6 +179,7 @@ void app
       settingsService,
       scanService,
       analysisService,
+      graphService,
     );
 
     await createMainWindow(rendererTarget);

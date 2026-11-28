@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — Phase 5 graph engine (target v0.5.0; implementation on branch `arena/160b455a-repolens`)
+
+### Added
+
+- Shared Zod graph node/edge/dependency/metrics/query/cycle/export/progress DTO contracts with normalized path, identity, reference, and size validation.
+- Framework-independent asynchronous Graphology graph construction from real Phase 4 `AnalysisResult` data, with stable normalized project/folder/file/symbol IDs, evidence-backed containment/import/export relationships, duplicate consistency checks, and separate resolved, external, and unresolved dependency records.
+- Directed local dependency traversal/dependent queries with cycle-safe depth limits, shortest paths, deterministic node queries, metrics, iterative SCC detection, and bounded canonical nonduplicate simple-cycle enumeration.
+- Project-ID-keyed in-memory graph lifecycle with newer-analysis invalidation, revision leases, stale-publication prevention, replacement, disposal, age/capacity cleanup, progress, cancellation, and desktop event-loop yielding.
+- Sender-guarded graph IPC and schema-validated preload operations for summaries, queries, dependencies, paths, cycles, deterministic JSON export, disposal, and progress; Graphology instances remain main/core-only.
+- Deterministic graph-engine/provider/schema/IPC/bridge tests and graph assertions in the emitted desktop workflow integration.
+- Graph architecture, node/edge, cycle/SCC, query, export, lifecycle, security-boundary, scope, and limitation documentation in [Graph Engine](docs/GRAPH_ENGINE.md).
+
+### Scope and limitations
+
+- Only Phase 4 evidence is used. The graph contains resolved local/alias imports and explicit export/containment evidence; it does not infer calls, inheritance, API routes, or database models. No graph visualization/Architecture Explorer UI or CLI graph command is added.
+- Graphs are transient and bounded in memory. JSON is the only graph export; GraphML, persistence/SQLite/Drizzle, incremental indexing, report/ZIP/SVG/PNG export, and change-impact analysis are not implemented.
+- Automated verification does not replace the outstanding supported-platform Electron GUI/native-picker smoke test.
+
+### Verification
+
+- `npm test` passed: 36 Vitest files / 112 tests, 4 Angular spec files / 12 tests, emitted worker smoke test, and desktop workflow integration including graph progress, queries, paths, cycles, JSON export, lifecycle disposal, and scan cancellation.
+- `npm run build`, `npm run typecheck`, `npm run lint`, and `npm run format:check` passed. The production Angular build retains existing non-fatal bundle/style budget warnings; see [Project Status](PROJECT_STATUS.md).
+- Electron's native GUI/picker and supported-platform manual smoke test remain unverified in this sandbox.
+
 ## [Unreleased] — Phase 4 static analysis (target v0.4.0; implementation under review)
 
 ### Added

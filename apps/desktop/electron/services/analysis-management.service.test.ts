@@ -1,3 +1,4 @@
+import { buildProjectGraph, InMemoryGraphProvider } from '@repolens/core';
 import {
   analysisResultSchema,
   projectSchema,
@@ -156,6 +157,26 @@ function createServices(
   };
 }
 
+function emptyAnalysis(analysisId: string): AnalysisResult {
+  return analysisResultSchema.parse({
+    analysisId,
+    scanId,
+    projectId,
+    status: 'completed',
+    startedAt: '2026-11-27T00:00:00.000Z',
+    completedAt: '2026-11-27T00:00:01.000Z',
+    durationMs: 1_000,
+    filesSelected: 0,
+    filesAnalyzed: 0,
+    filesSkipped: 0,
+    symbols: [],
+    imports: [],
+    exports: [],
+    dependencies: [],
+    diagnostics: [],
+  });
+}
+
 describe('analysis management service', () => {
   it('uses only the current in-memory ScanResult, forwards progress, supports cancellation, and blocks removal while active', async () => {
     const worker = new ControlledAnalysisWorker();
@@ -193,6 +214,83 @@ describe('analysis management service', () => {
     });
     expect(worker.terminate).toHaveBeenCalledOnce();
     await expect(service.removeProject(projectId, async () => 'removed')).resolves.toBe('removed');
+  });
+
+  it('invalidates the previous graph when analysis starts and publishes only the matching newer result', async () => {
+    const worker = new ControlledAnalysisWorker();
+    const graphProvider = new InMemoryGraphProvider();
+    const oldGraph = await buildProjectGraph(emptyAnalysis('8d707ca0-312b-4a6f-8950-8df3441d973a'));
+    graphProvider.replace(oldGraph);
+    const projects = { getById: vi.fn(async () => project) };
+    const scans = { getCurrentResult: vi.fn(() => scan) };
+    const service = new AnalysisManagementService(
+      projects as unknown as ProjectManagementService,
+      scans as unknown as ScanManagementService,
+      () => worker,
+      graphProvider,
+    );
+
+    const request = service.start(projectId, scanId, vi.fn());
+    const input = await worker.started;
+    expect(graphProvider.get(projectId)).toBeNull();
+
+    worker.complete('completed');
+    const result = await request;
+    expect(result.analysisId).toBe(input.analysisId);
+    const currentGraph = graphProvider.get(projectId);
+    expect(currentGraph?.analysisId).toBe(input.analysisId);
+    expect(currentGraph?.getSummary().metrics.nodeCount).toBe(1);
+
+    await expect(
+      service.removeProject(projectId, async () => {
+        throw new Error('The registration could not be removed.');
+      }),
+    ).rejects.toThrow('The registration could not be removed.');
+    expect(graphProvider.get(projectId)).toBe(currentGraph);
+    await expect(service.removeProject(projectId, async () => 'removed')).resolves.toBe('removed');
+    expect(graphProvider.get(projectId)).toBeNull();
+  });
+
+  it('forwards graph progress and cancels graph generation without publishing a partial graph', async () => {
+    const worker = new ControlledAnalysisWorker();
+    const graphProvider = new InMemoryGraphProvider();
+    const projects = { getById: vi.fn(async () => project) };
+    const scans = { getCurrentResult: vi.fn(() => scan) };
+    const service = new AnalysisManagementService(
+      projects as unknown as ProjectManagementService,
+      scans as unknown as ScanManagementService,
+      () => worker,
+      graphProvider,
+    );
+    let cancelRequested = false;
+    const graphProgress = vi.fn(
+      (progress: { readonly analysisId: string; readonly phase: string }) => {
+        if (progress.phase === 'nodes') {
+          cancelRequested = true;
+          void service.cancel(progress.analysisId);
+        }
+      },
+    );
+
+    const request = service.start(projectId, scanId, vi.fn(), graphProgress);
+    const input = await worker.started;
+    worker.complete('completed');
+
+    await expect(request).resolves.toMatchObject({
+      analysisId: input.analysisId,
+      status: 'completed',
+    });
+    expect(cancelRequested).toBe(true);
+    expect(graphProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        analysisId: input.analysisId,
+        projectId,
+        scanId,
+        phase: 'cancelled',
+      }),
+    );
+    expect(graphProvider.get(projectId)).toBeNull();
+    expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
   it('rejects a scan that is not the current full in-memory result', async () => {

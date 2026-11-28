@@ -1,4 +1,16 @@
 import type { AnalysisProgress, AnalysisResult } from '../schemas/analysis.schema.js';
+import type {
+  GraphBuildProgress,
+  GraphCycleQuery,
+  GraphCycleReport,
+  GraphDependencyQuery,
+  GraphNodeQuery,
+  GraphNodeQueryResult,
+  GraphPathQuery,
+  GraphPathResult,
+  GraphSummary,
+  GraphTraversalResult,
+} from '../schemas/graph.schema.js';
 import type { AppSettings } from '../schemas/app-settings.schema.js';
 import type {
   ProjectImportCommitResult,
@@ -40,6 +52,19 @@ export interface RepoLensAPI {
     start(projectId: string, scanId: string): Promise<Result<AnalysisResult>>;
     cancel(analysisId: string): Promise<Result<{ readonly cancelled: true }>>;
     onProgress(callback: (progress: AnalysisProgress) => void): () => void;
+  };
+  readonly graphs: {
+    onProgress(callback: (progress: GraphBuildProgress) => void): () => void;
+    summary(projectId: string): Promise<Result<GraphSummary | null>>;
+    query(projectId: string, query: GraphNodeQuery): Promise<Result<GraphNodeQueryResult | null>>;
+    dependencies(
+      projectId: string,
+      query: GraphDependencyQuery,
+    ): Promise<Result<GraphTraversalResult | null>>;
+    shortestPath(projectId: string, query: GraphPathQuery): Promise<Result<GraphPathResult | null>>;
+    cycles(projectId: string, query?: GraphCycleQuery): Promise<Result<GraphCycleReport | null>>;
+    exportJson(projectId: string): Promise<Result<string | null>>;
+    dispose(projectId: string): Promise<Result<{ readonly disposed: true }>>;
   };
   readonly settings: {
     get(): Promise<Result<AppSettings>>;

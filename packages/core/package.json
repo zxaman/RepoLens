@@ -19,6 +19,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@repolens/shared": "0.1.0"
+    "@repolens/shared": "0.1.0",
+    "graphology": "^0.26.0",
+    "graphology-shortest-path": "^2.1.0"
   }
 }
