@@ -60,6 +60,7 @@ export const analysisSymbolKindSchema = z.enum([
   'enum-member',
   'namespace',
 ]);
+export const analysisSymbolSemanticRoleSchema = z.enum(['component', 'service']);
 export const analysisImportKindSchema = z.enum([
   'static',
   'type-only',
@@ -105,9 +106,19 @@ export const analysisSymbolSchema = z
     kind: analysisSymbolKindSchema,
     location: sourceLocationSchema,
     parentId: stableAnalysisIdSchema.optional(),
+    semanticRole: analysisSymbolSemanticRoleSchema.optional(),
     exported: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((symbol, context) => {
+    if (symbol.semanticRole !== undefined && symbol.kind !== 'class') {
+      context.addIssue({
+        code: 'custom',
+        path: ['semanticRole'],
+        message: 'Framework semantic roles apply only to class symbols.',
+      });
+    }
+  });
 
 export const analysisImportBindingSchema = z
   .object({

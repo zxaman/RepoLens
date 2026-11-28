@@ -276,6 +276,45 @@ try {
     await bridge.graphs.query(project.id, { types: ['function'], name: 'greet' }),
   );
   assert.ok(graphFunctions.nodes.some((node) => node.name === 'greet'));
+  assert.ok(
+    graphFunctions.edges.every(
+      (edge) =>
+        graphFunctions.nodes.some((node) => node.id === edge.sourceId) &&
+        graphFunctions.nodes.some((node) => node.id === edge.targetId),
+    ),
+  );
+  const projectNeighborhood = unwrap(
+    await bridge.graphs.neighborhood(project.id, {
+      nodeId: `project:${project.id}`,
+      direction: 'both',
+      depth: 2,
+      limit: 100,
+    }),
+  );
+  assert.equal(projectNeighborhood.anchorNodeId, `project:${project.id}`);
+  assert.ok(projectNeighborhood.nodes.length <= 100);
+  const projectNeighborhoodNodeIds = new Set(projectNeighborhood.nodes.map((node) => node.id));
+  assert.ok(
+    projectNeighborhood.edges.every(
+      (edge) =>
+        projectNeighborhoodNodeIds.has(edge.sourceId) &&
+        projectNeighborhoodNodeIds.has(edge.targetId),
+    ),
+  );
+  const dependencyNeighborhood = unwrap(
+    await bridge.graphs.neighborhood(project.id, {
+      nodeId: 'file:src/index.ts',
+      direction: 'outgoing',
+      edgeTypes: ['imports'],
+      depth: 1,
+      limit: 50,
+    }),
+  );
+  assert.ok(
+    dependencyNeighborhood.edges.some(
+      (edge) => edge.type === 'imports' && edge.specifier === './helper',
+    ),
+  );
   const graphDependencies = unwrap(
     await bridge.graphs.dependencies(project.id, {
       relativePath: 'src/index.ts',

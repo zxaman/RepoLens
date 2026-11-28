@@ -113,7 +113,10 @@
           <summary>Configure scan exclusions</summary>
           <p class="field-help">
             These built-in directories stay excluded: {{ defaultExcludedDirectories.join(', ') }}.
-            Add directory names below to exclude more folders.
+            Add directory names below to exclude more folders. Generated bundles and mobile web
+            build outputs are also skipped by patterns such as
+            {{ defaultExcludedPatterns.join(', ') }}; real JavaScript and TypeScript source remains
+            eligible outside those output patterns.
           </p>
           <label for="extra-excluded-directories">Additional directory names</label>
           <textarea
@@ -870,40 +873,17 @@
                       }
                       @if (graphSummary(); as summary) {
                         <p class="field-help">
-                          Actual graph data: {{ summary.metrics.fileCount }} files ·
+                          Validated graph data: {{ summary.metrics.fileCount }} files ·
+                          {{ summary.metrics.folderCount }} folders ·
                           {{ summary.metrics.symbolCount }} symbols ·
-                          {{ summary.metrics.cyclicComponentCount }} cyclic component(s). The node
-                          list below is a bounded first page of 100 validated graph nodes.
+                          {{ summary.metrics.cyclicComponentCount }} cyclic component(s). The
+                          explorer starts with the project neighborhood and loads additional records
+                          through bounded search and expansion.
                         </p>
-                      }
-                      @if (graphNodes().length) {
-                        <details class="file-results graph-node-results" open>
-                          <summary>Graph nodes ({{ graphNodes().length }} shown)</summary>
-                          <div class="file-table-wrap">
-                            <table>
-                              <thead>
-                                <tr>
-                                  <th>Name</th>
-                                  <th>Type</th>
-                                  <th>Project path</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                @for (node of graphNodes(); track node.id) {
-                                  <tr>
-                                    <td>
-                                      <code>{{ node.name }}</code>
-                                    </td>
-                                    <td>{{ node.type }}</td>
-                                    <td>
-                                      <code>{{ node.relativePath ?? node.filePath ?? '—' }}</code>
-                                    </td>
-                                  </tr>
-                                }
-                              </tbody>
-                            </table>
-                          </div>
-                        </details>
+                        <app-graph-visualization
+                          [projectId]="summary.projectId"
+                          [summary]="summary"
+                        ></app-graph-visualization>
                       }
                       @if (graphCycles(); as cycles) {
                         <details class="file-results graph-node-results">

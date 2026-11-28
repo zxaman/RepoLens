@@ -16,6 +16,7 @@ export interface ParsedSymbol {
   readonly kind: SourceSymbolKind;
   readonly location: SourceLocation;
   readonly parentKey?: string;
+  readonly semanticRole?: 'component' | 'service';
   readonly exported: boolean;
 }
 
@@ -60,6 +61,7 @@ export interface ParsedPathMapping {
 }
 
 export interface ParsedResolutionConfig {
+  readonly extends?: string;
   readonly baseUrl?: string;
   readonly paths?: readonly ParsedPathMapping[];
 }

@@ -1,0 +1,326 @@
+<section class="graph-explorer" aria-label="Interactive architecture explorer">
+  <header class="explorer-heading">
+    <div>
+      <h5>Architecture Explorer</h5>
+      <p>
+        {{ nodes().length }} nodes and {{ edges().length }} relationships loaded for this view. The
+        complete graph contains {{ summary().metrics.nodeCount }} nodes and
+        {{ summary().metrics.edgeCount }} relationships.
+      </p>
+    </div>
+    <span class="explorer-status" [attr.data-status]="status()" role="status" aria-live="polite">
+      @switch (status()) {
+        @case ('loading') {
+          Loading graph neighborhood…
+        }
+        @case ('success') {
+          Interactive graph ready
+        }
+        @case ('empty') {
+          No matching nodes
+        }
+        @case ('error') {
+          Graph data unavailable
+        }
+      }
+    </span>
+  </header>
+
+  <form class="graph-search" (submit)="searchGraph($event)">
+    <label>
+      Search node names
+      <input
+        type="search"
+        [value]="searchName()"
+        placeholder="For example: AppComponent or UserService"
+        (input)="searchName.set($any($event.target).value)"
+      />
+    </label>
+    <label>
+      Project path prefix
+      <input
+        type="text"
+        [value]="searchPath()"
+        placeholder="src/app/services"
+        (input)="searchPath.set($any($event.target).value)"
+      />
+    </label>
+    <div class="search-actions">
+      <button type="submit" class="button-primary" [disabled]="searchLoading()">
+        {{ searchLoading() ? 'Searching…' : 'Search graph' }}
+      </button>
+      <button type="button" class="button-secondary" (click)="returnToOverview()">
+        Project overview
+      </button>
+    </div>
+  </form>
+
+  <details class="graph-filters">
+    <summary>
+      Filters · {{ nodeTypeFilters().length }} node types ·
+      {{ edgeTypeFilters().length }} relationship types
+    </summary>
+    <div class="filter-columns">
+      <fieldset>
+        <legend>Visible and searchable node types</legend>
+        <div class="filter-options">
+          @for (type of nodeTypes; track type) {
+            <label>
+              <input
+                type="checkbox"
+                [checked]="isNodeTypeVisible(type)"
+                (change)="toggleNodeType(type, $any($event.target).checked)"
+              />
+              <span>{{ type }}</span>
+            </label>
+          }
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Visible relationship types</legend>
+        <div class="filter-options">
+          @for (type of edgeTypes; track type) {
+            <label>
+              <input
+                type="checkbox"
+                [checked]="isEdgeTypeVisible(type)"
+                (change)="toggleEdgeType(type, $any($event.target).checked)"
+              />
+              <span>{{ type }}</span>
+            </label>
+          }
+        </div>
+      </fieldset>
+    </div>
+    <button type="button" class="button-link" (click)="resetFilters()">Show all types</button>
+  </details>
+
+  @if (mode() === 'search' && status() !== 'error') {
+    <p class="explorer-note" role="status">
+      Showing {{ searchLoaded() }} of {{ searchTotal() }} matching nodes. Search results are paged;
+      expand a selected node to load its actual connected relationships.
+    </p>
+    @if (searchHasMore()) {
+      <button
+        type="button"
+        class="button-secondary load-more-button"
+        [disabled]="searchLoading() || searchLoaded() >= 600"
+        (click)="loadMoreSearchResults()"
+      >
+        @if (searchLoaded() >= 600) {
+          600-node search view limit reached — refine filters to continue
+        } @else {
+          {{ searchLoading() ? 'Loading matches…' : 'Load next search page' }}
+        }
+      </button>
+    }
+  }
+
+  @if (neighborhoodNodesTruncated() || neighborhoodEdgesTruncated()) {
+    <p class="explorer-note truncation-note" role="status">
+      This view reached a safety limit
+      @if (neighborhoodNodesTruncated()) {
+        for nodes
+      }
+      @if (neighborhoodNodesTruncated() && neighborhoodEdgesTruncated()) {
+        and
+      }
+      @if (neighborhoodEdgesTruncated()) {
+        for relationships
+      }
+      . The complete graph remains in memory; reduce the neighborhood depth, use filters, or explore
+      a narrower node.
+    </p>
+  }
+
+  @if (queryError()) {
+    <div class="explorer-error" role="alert">
+      <span>{{ retryMessage() }}</span>
+      @if (status() === 'error') {
+        <button type="button" class="button-secondary" (click)="retryLoad()">Retry</button>
+      }
+    </div>
+  }
+
+  @if (status() === 'loading') {
+    <p class="explorer-state" role="status">
+      Loading validated nodes and relationships from the in-memory graph…
+    </p>
+  } @else if (status() === 'empty') {
+    <div class="explorer-state" role="status">
+      <strong>No nodes match this view.</strong>
+      <span>Change the search or filters, or return to the project overview.</span>
+    </div>
+  } @else if (status() === 'error') {
+    <div class="explorer-state" role="alert">
+      <strong>The graph could not be loaded.</strong>
+      <span>Regenerate the graph if its in-memory data has expired, then try again.</span>
+      <button type="button" class="button-secondary" (click)="retryLoad()">
+        Retry graph query
+      </button>
+    </div>
+  }
+
+  <div class="explorer-toolbar" aria-label="Graph viewport controls">
+    <div class="viewport-actions">
+      <button type="button" class="button-secondary" (click)="zoomBy(1.25)" aria-label="Zoom in">
+        +
+      </button>
+      <button type="button" class="button-secondary" (click)="zoomBy(0.8)" aria-label="Zoom out">
+        −
+      </button>
+      <button type="button" class="button-secondary" (click)="fitGraph()">Fit</button>
+      <button type="button" class="button-secondary" (click)="centerGraph()">Center</button>
+      <button type="button" class="button-secondary" (click)="resetView()">Reset view</button>
+    </div>
+    <span
+      >Scroll to zoom · drag the background to pan · drag nodes to reposition · double-click a node
+      to explore</span
+    >
+  </div>
+
+  <div class="explorer-main">
+    <div
+      #graphCanvas
+      class="graph-canvas"
+      role="img"
+      aria-label="Cytoscape project architecture graph. Nodes and directed relationships are interactive."
+      [attr.aria-hidden]="status() !== 'success'"
+    ></div>
+
+    <aside class="node-inspector" aria-label="Selected graph item details" aria-live="polite">
+      @if (selectedNode(); as node) {
+        <div class="inspector-heading">
+          <span class="type-badge" [attr.data-type]="node.type">{{ node.type }}</span>
+          <button type="button" class="button-link" (click)="clearSelection()">Clear</button>
+        </div>
+        <h6>{{ node.name }}</h6>
+        <dl>
+          <dt>Project path</dt>
+          <dd>
+            <code>{{ pathForNode(node) || 'Project root' }}</code>
+          </dd>
+          @if (node.symbolKind) {
+            <dt>Source symbol kind</dt>
+            <dd>{{ node.symbolKind }}</dd>
+          }
+          @if (node.exported !== undefined) {
+            <dt>Exported</dt>
+            <dd>{{ node.exported ? 'Yes' : 'No' }}</dd>
+          }
+          @if (node.location) {
+            <dt>Source location</dt>
+            <dd>
+              <code>{{ sourceLocationLabel(node.location) }}</code>
+            </dd>
+          }
+          <dt>Graph ID</dt>
+          <dd class="graph-id">
+            <code>{{ node.id }}</code>
+          </dd>
+        </dl>
+        <div class="explore-controls">
+          <label>
+            Neighborhood depth
+            <select
+              [value]="neighborhoodDepth()"
+              (change)="setNeighborhoodDepth($any($event.target).value)"
+            >
+              @for (depth of [1, 2, 3]; track depth) {
+                <option [value]="depth">{{ depth }} hop{{ depth === 1 ? '' : 's' }}</option>
+              }
+            </select>
+          </label>
+          <label>
+            Follow directed relationships
+            <select
+              [value]="neighborhoodDirection()"
+              (change)="setNeighborhoodDirection($any($event.target).value)"
+            >
+              <option value="both">Both directions</option>
+              <option value="outgoing">Outgoing only</option>
+              <option value="incoming">Incoming only</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="button-primary"
+            [disabled]="neighborhoodLoading()"
+            (click)="exploreSelectedNode()"
+          >
+            {{ neighborhoodLoading() ? 'Loading neighborhood…' : 'Explore neighbors' }}
+          </button>
+          <button type="button" class="button-secondary" (click)="focusSelected()">
+            Focus selected
+          </button>
+        </div>
+      } @else if (selectedEdge(); as edge) {
+        <div class="inspector-heading">
+          <span class="type-badge" [attr.data-type]="edge.type">{{ edge.type }}</span>
+          <button type="button" class="button-link" (click)="clearSelection()">Clear</button>
+        </div>
+        <h6>Directed relationship</h6>
+        <p class="edge-direction">
+          <code>{{ nodeName(edge.sourceId) }}</code> → <code>{{ nodeName(edge.targetId) }}</code>
+        </p>
+        <dl>
+          @if (edge.specifier) {
+            <dt>Module specifier</dt>
+            <dd>
+              <code>{{ edge.specifier }}</code>
+            </dd>
+          }
+          @if (edge.dependencyKind) {
+            <dt>Dependency kind</dt>
+            <dd>{{ edge.dependencyKind }}</dd>
+          }
+          @if (edge.name) {
+            <dt>Export name</dt>
+            <dd>{{ edge.name }}</dd>
+          }
+          @if (edge.isTypeOnly !== undefined) {
+            <dt>Type-only</dt>
+            <dd>{{ edge.isTypeOnly ? 'Yes' : 'No' }}</dd>
+          }
+          <dt>Evidence location</dt>
+          <dd>
+            <code>{{ sourceLocationLabel(edge.sourceLocation) }}</code>
+          </dd>
+          @if (edge.evidenceId) {
+            <dt>Evidence ID</dt>
+            <dd class="graph-id">
+              <code>{{ edge.evidenceId }}</code>
+            </dd>
+          }
+          <dt>Relationship ID</dt>
+          <dd class="graph-id">
+            <code>{{ edge.id }}</code>
+          </dd>
+        </dl>
+        <button type="button" class="button-secondary" (click)="focusSelected()">
+          Focus relationship
+        </button>
+      } @else {
+        <div class="inspector-empty">
+          <strong>Select a node or arrow</strong>
+          <span>Inspect source details, then expand the selected node's neighborhood.</span>
+        </div>
+      }
+    </aside>
+  </div>
+
+  <footer class="graph-legend" aria-label="Graph type legend">
+    @for (type of nodeTypes; track type) {
+      <span><i class="legend-node" [attr.data-type]="type"></i>{{ type }}</span>
+    }
+    @for (type of edgeTypes; track type) {
+      <span><i class="legend-edge" [attr.data-type]="type"></i>{{ type }} →</span>
+    }
+  </footer>
+  <p class="explorer-footnote">
+    The view is bounded to {{ neighborhoodNodeLimit }} nodes per neighborhood,
+    {{ neighborhoodDepthLimit }} hops, and 600 paged search results. Use search, type filters, and
+    neighborhood expansion to explore more; underlying graph records are retained and every
+    displayed edge must connect two returned graph nodes.
+  </p>
+</section>

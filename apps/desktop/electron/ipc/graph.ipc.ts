@@ -5,6 +5,7 @@ import {
   graphGenerationReportSchema,
   graphDisposeResultSchema,
   graphExportJsonSchema,
+  graphNeighborhoodResultSchema,
   graphNodeQueryResultSchema,
   graphPathResultSchema,
   graphSummarySchema,
@@ -12,6 +13,7 @@ import {
   successResult,
   type AppError,
   type GraphCycleReport,
+  type GraphNeighborhoodResult,
   type GraphNodeQueryResult,
   type GraphPathResult,
   type GraphGenerationReport,
@@ -27,6 +29,7 @@ import {
   graphCyclesPayloadSchema,
   graphDependenciesPayloadSchema,
   graphGeneratePayloadSchema,
+  graphNeighborhoodPayloadSchema,
   graphPathPayloadSchema,
   graphProjectPayloadSchema,
   graphQueryPayloadSchema,
@@ -78,6 +81,17 @@ export function registerGraphIpc(
         graphNodeQueryResultSchema.nullable().parse(await graphs.query(projectId, query)),
       ),
     invalidPayloadAsResult<GraphNodeQueryResult | null>(),
+  );
+  registerValidatedHandler(
+    ipcMain,
+    IPC_CHANNELS.graphsNeighborhood,
+    senderGuard,
+    graphNeighborhoodPayloadSchema,
+    ({ projectId, query }) =>
+      safely('graph neighborhood query', async () =>
+        graphNeighborhoodResultSchema.nullable().parse(await graphs.neighborhood(projectId, query)),
+      ),
+    invalidPayloadAsResult<GraphNeighborhoodResult | null>(),
   );
   registerValidatedHandler(
     ipcMain,

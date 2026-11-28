@@ -17,6 +17,8 @@ import type {
   GraphDependencyQuery,
   GraphGenerationFailureCode,
   GraphGenerationReport,
+  GraphNeighborhoodQuery,
+  GraphNeighborhoodResult,
   GraphNodeQuery,
   GraphNodeQueryResult,
   GraphPathQuery,
@@ -327,6 +329,14 @@ export class GraphManagementService {
   async query(projectId: string, query: GraphNodeQuery): Promise<GraphNodeQueryResult | null> {
     const graph = await this.getGraph(projectId);
     return graph?.queryNodes(query) ?? null;
+  }
+
+  async neighborhood(
+    projectId: string,
+    query: GraphNeighborhoodQuery,
+  ): Promise<GraphNeighborhoodResult | null> {
+    const graph = await this.getGraph(projectId);
+    return graph?.queryNeighborhood(query) ?? null;
   }
 
   async dependencies(

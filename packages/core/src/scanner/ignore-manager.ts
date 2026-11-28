@@ -1,4 +1,9 @@
-import { DEFAULT_EXCLUDED_DIRECTORIES, type ScanConfig, type ScanWarning } from '@repolens/shared';
+import {
+  DEFAULT_EXCLUDED_DIRECTORIES,
+  DEFAULT_EXCLUDED_PATTERNS,
+  type ScanConfig,
+  type ScanWarning,
+} from '@repolens/shared';
 import {
   errorCode,
   isScanCancelled,
@@ -84,7 +89,10 @@ export class IgnoreManager {
     );
 
     const userRules: IgnoreRule[] = [];
-    for (const pattern of config.excludePatterns) {
+    const configuredPatterns = [
+      ...new Set([...DEFAULT_EXCLUDED_PATTERNS, ...config.excludePatterns]),
+    ];
+    for (const pattern of configuredPatterns) {
       const matcher = compilePattern(pattern);
       if (matcher === null) {
         onWarning({

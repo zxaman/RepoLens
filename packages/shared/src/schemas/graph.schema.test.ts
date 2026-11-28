@@ -3,6 +3,8 @@ import {
   graphBuildProgressSchema,
   graphExportSchema,
   graphGenerationReportSchema,
+  graphNeighborhoodResultSchema,
+  graphNodeQueryResultSchema,
   graphNodeSchema,
   type GraphExport,
 } from './graph.schema.js';
@@ -204,6 +206,82 @@ describe('graph shared schemas', () => {
     };
     expect(graphNodeSchema.safeParse(symbolNode).success).toBe(true);
     expect(graphNodeSchema.safeParse({ ...symbolNode, id: 'symbol:other' }).success).toBe(false);
+  });
+
+  it('validates bounded graph pages and requires every returned edge endpoint on the page', () => {
+    const nodes = makeExport().nodes;
+    const edge = {
+      id: 'edge:contains:project:file',
+      projectId,
+      type: 'contains' as const,
+      sourceId: nodes[0]!.id,
+      targetId: nodes[1]!.id,
+    };
+    const page = {
+      nodes,
+      edges: [edge],
+      edgesTruncated: false,
+      total: 2,
+      offset: 0,
+      limit: 100,
+    };
+
+    expect(graphNodeQueryResultSchema.parse(page)).toEqual(page);
+    expect(
+      graphNodeQueryResultSchema.safeParse({
+        ...page,
+        edges: [{ ...edge, targetId: 'file:src/missing.ts' }],
+      }).success,
+    ).toBe(false);
+    expect(graphNodeQueryResultSchema.safeParse({ ...page, edgesTruncated: true }).success).toBe(
+      false,
+    );
+    expect(
+      graphNodeQueryResultSchema.safeParse({ ...page, nodes: [nodes[0], nodes[0]] }).success,
+    ).toBe(false);
+  });
+
+  it('validates bounded neighborhoods and keeps anchors and edge endpoints in the returned view', () => {
+    const [projectNode, fileNode] = makeExport().nodes;
+    expect(projectNode).toBeDefined();
+    expect(fileNode).toBeDefined();
+    const edge = {
+      id: 'edge:contains:project:file',
+      projectId,
+      type: 'contains' as const,
+      sourceId: projectNode!.id,
+      targetId: fileNode!.id,
+    };
+    const neighborhood = {
+      anchorNodeId: projectNode!.id,
+      depth: 2,
+      limit: 2,
+      nodes: [projectNode!, fileNode!],
+      edges: [edge],
+      nodesTruncated: false,
+      edgesTruncated: false,
+    };
+
+    expect(graphNeighborhoodResultSchema.parse(neighborhood)).toEqual(neighborhood);
+    expect(
+      graphNeighborhoodResultSchema.safeParse({
+        ...neighborhood,
+        anchorNodeId: 'file:src/missing.ts',
+      }).success,
+    ).toBe(false);
+    expect(
+      graphNeighborhoodResultSchema.safeParse({
+        ...neighborhood,
+        limit: 3,
+        nodesTruncated: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      graphNeighborhoodResultSchema.safeParse({
+        ...neighborhood,
+        edges: [{ ...edge, targetId: 'file:src/missing.ts' }],
+      }).success,
+    ).toBe(false);
   });
 
   it('validates exported references and cross-checks relationship metrics', () => {

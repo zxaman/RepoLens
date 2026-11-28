@@ -86,6 +86,7 @@ describe('secure preload bridge', () => {
       'dispose',
       'exportJson',
       'generate',
+      'neighborhood',
       'onProgress',
       'query',
       'shortestPath',

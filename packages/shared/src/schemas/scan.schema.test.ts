@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_EXCLUDED_DIRECTORIES, scanConfigSchema, scanFileSchema } from './scan.schema.js';
+import {
+  DEFAULT_EXCLUDED_DIRECTORIES,
+  DEFAULT_EXCLUDED_PATTERNS,
+  scanConfigSchema,
+  scanFileSchema,
+} from './scan.schema.js';
 
 describe('scanner contracts', () => {
   it('provides safe scan defaults and requires an explicit sensitive-file risk acknowledgement', () => {
     const defaults = scanConfigSchema.parse({});
     expect(defaults.excludedDirectories).toEqual([...DEFAULT_EXCLUDED_DIRECTORIES]);
+    expect(defaults.excludePatterns).toEqual([...DEFAULT_EXCLUDED_PATTERNS]);
     expect(defaults.includeSensitiveFiles).toBe(false);
     expect(defaults.maxHashBytes).toBe(52_428_800);
     expect(scanConfigSchema.safeParse({ includeSensitiveFiles: true }).success).toBe(false);

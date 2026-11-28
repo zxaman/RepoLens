@@ -1,4 +1,8 @@
-import { graphGenerationReportSchema, graphSummarySchema } from '@repolens/shared';
+import {
+  graphGenerationReportSchema,
+  graphNeighborhoodResultSchema,
+  graphSummarySchema,
+} from '@repolens/shared';
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
 import type { GraphBuildProgress } from '@repolens/shared';
 import { describe, expect, it, vi } from 'vitest';
@@ -26,6 +30,22 @@ const generationReport = graphGenerationReportSchema.parse({
   cycleCount: 0,
   cyclesTruncated: false,
   warnings: [],
+});
+const neighborhood = graphNeighborhoodResultSchema.parse({
+  anchorNodeId: `project:${projectId}`,
+  depth: 2,
+  limit: 20,
+  nodes: [
+    {
+      id: `project:${projectId}`,
+      projectId,
+      type: 'project',
+      name: 'fixture-project',
+    },
+  ],
+  edges: [],
+  nodesTruncated: false,
+  edgesTruncated: false,
 });
 const summary = graphSummarySchema.parse({
   projectId,
@@ -105,6 +125,7 @@ describe('graph IPC', () => {
       ),
       summary: vi.fn(async () => summary),
       query: vi.fn(async () => null),
+      neighborhood: vi.fn(async () => neighborhood),
       dependencies: vi.fn(async () => null),
       shortestPath: vi.fn(async () => null),
       cycles: vi.fn(async () => null),
@@ -140,6 +161,25 @@ describe('graph IPC', () => {
     });
     expect(graphs.summary).toHaveBeenCalledWith(projectId);
 
+    const neighborhoodQuery = {
+      nodeId: `project:${projectId}`,
+      direction: 'both',
+      depth: 2,
+      limit: 20,
+    } as const;
+    const neighborhoodHandler = handlers.get(IPC_CHANNELS.graphsNeighborhood);
+    await expect(
+      neighborhoodHandler?.(event, { projectId, query: neighborhoodQuery }),
+    ).resolves.toEqual({ ok: true, data: neighborhood });
+    expect(graphs.neighborhood).toHaveBeenCalledWith(projectId, neighborhoodQuery);
+    await expect(
+      neighborhoodHandler?.(event, {
+        projectId,
+        query: { nodeId: `project:${projectId}`, depth: 4 },
+      }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
+    expect(graphs.neighborhood).toHaveBeenCalledOnce();
+
     await expect(
       generationHandler?.(event, { projectId, scanId: '../outside', analysisId }),
     ).resolves.toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
@@ -159,7 +199,7 @@ describe('graph IPC', () => {
       rootPath: '/private/path',
     });
     expect(strictPayloadResult).toMatchObject({ ok: false, error: { code: 'INVALID_INPUT' } });
-    expect(senderGuard).toHaveBeenCalledTimes(5);
+    expect(senderGuard).toHaveBeenCalledTimes(7);
   });
 
   it('rejects an invalid graph object returned by a service before IPC resolves', async () => {

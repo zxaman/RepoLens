@@ -40,6 +40,7 @@ export class TypeScriptParser implements StaticAnalysisParser {
       scriptKindFor(filePath),
     );
     const symbols: ParsedSymbol[] = [];
+    const angularDecoratorAliases = getAngularDecoratorAliases(sourceFile);
     const imports: ParsedImport[] = [];
     const exports: ParsedExport[] = [];
     const syntaxDiagnostics = getSyntaxDiagnostics(sourceFile);
@@ -70,6 +71,7 @@ export class TypeScriptParser implements StaticAnalysisParser {
       kind: ParsedSymbol['kind'],
       parentKey: string,
       exported: boolean,
+      semanticRole?: ParsedSymbol['semanticRole'],
     ): string | null => {
       if (symbols.length >= MAX_EXTRACTED_RECORDS_PER_FILE) {
         truncated = true;
@@ -83,6 +85,7 @@ export class TypeScriptParser implements StaticAnalysisParser {
         kind,
         location: locationForNode(filePath, sourceFile, node),
         parentKey,
+        ...(semanticRole === undefined ? {} : { semanticRole }),
         exported,
       });
       if (exported) {
@@ -179,7 +182,12 @@ export class TypeScriptParser implements StaticAnalysisParser {
       }
       collectModuleRelations(node, addImport, addExport);
 
-      const createdSymbols = createSymbolsForNode(node, parentKey, addSymbol);
+      const createdSymbols = createSymbolsForNode(
+        node,
+        parentKey,
+        angularDecoratorAliases,
+        addSymbol,
+      );
       const newParentKey = createdSymbols.containerKey ?? parentKey;
       ts.forEachChild(node, (child) => visit(child, newParentKey));
     };
@@ -206,20 +214,25 @@ export class TypeScriptParser implements StaticAnalysisParser {
 
     const config = asRecord(parsed.config);
     const compilerOptions = asRecord(config?.['compilerOptions']) ?? {};
-    if (config?.['extends'] !== undefined) {
-      return {
-        resolution: null,
-        diagnostics: [
-          {
-            code: 'TSCONFIG_EXTENDS_UNSUPPORTED',
-            message:
-              'This tsconfig extends another configuration. Inherited options are not loaded, so path aliases from this config were not used.',
-          },
-        ],
-      };
+    const diagnostics: ParsedDiagnostic[] = [];
+    let extendsPath: string | undefined;
+    const rawExtends = config?.['extends'];
+    if (rawExtends !== undefined) {
+      if (
+        typeof rawExtends === 'string' &&
+        rawExtends.length > 0 &&
+        rawExtends.length <= STATIC_ANALYSIS_LIMITS.maxTsconfigExtendsPathLength
+      ) {
+        extendsPath = rawExtends;
+      } else {
+        diagnostics.push({
+          code: 'TSCONFIG_INVALID',
+          message:
+            'The TypeScript extends option must be one bounded string path; inherited configuration was ignored.',
+        });
+      }
     }
 
-    const diagnostics: ParsedDiagnostic[] = [];
     let baseUrl: string | undefined;
     const rawBaseUrl = compilerOptions['baseUrl'];
     if (rawBaseUrl !== undefined) {
@@ -290,6 +303,7 @@ export class TypeScriptParser implements StaticAnalysisParser {
 
     return {
       resolution: {
+        ...(extendsPath === undefined ? {} : { extends: extendsPath }),
         ...(baseUrl === undefined ? {} : { baseUrl }),
         ...(paths === undefined ? {} : { paths }),
       },
@@ -298,15 +312,91 @@ export class TypeScriptParser implements StaticAnalysisParser {
   }
 }
 
+interface AngularDecoratorAliases {
+  readonly rolesByLocalName: ReadonlyMap<string, 'component' | 'service'>;
+  readonly namespaceImports: ReadonlySet<string>;
+}
+
+function getAngularDecoratorAliases(sourceFile: ts.SourceFile): AngularDecoratorAliases {
+  const rolesByLocalName = new Map<string, 'component' | 'service'>();
+  const namespaceImports = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== '@angular/core'
+    ) {
+      continue;
+    }
+    const importClause = statement.importClause;
+    const bindings = importClause?.namedBindings;
+    if (importClause === undefined || importClause.isTypeOnly || bindings === undefined) {
+      continue;
+    }
+    if (ts.isNamespaceImport(bindings)) {
+      namespaceImports.add(bindings.name.text);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      if (element.isTypeOnly) {
+        continue;
+      }
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (importedName === 'Component' || importedName === 'Injectable') {
+        rolesByLocalName.set(
+          element.name.text,
+          importedName === 'Component' ? 'component' : 'service',
+        );
+      }
+    }
+  }
+  return { rolesByLocalName, namespaceImports };
+}
+
+function getClassSemanticRole(
+  node: ts.ClassDeclaration | ts.ClassExpression,
+  aliases: AngularDecoratorAliases,
+): 'component' | 'service' | undefined {
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
+  for (const decorator of decorators) {
+    const expression = ts.isCallExpression(decorator.expression)
+      ? decorator.expression.expression
+      : decorator.expression;
+    if (ts.isIdentifier(expression)) {
+      const role = aliases.rolesByLocalName.get(expression.text);
+      if (role !== undefined) {
+        return role;
+      }
+    } else if (
+      ts.isPropertyAccessExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      aliases.namespaceImports.has(expression.expression.text)
+    ) {
+      const role =
+        expression.name.text === 'Component'
+          ? 'component'
+          : expression.name.text === 'Injectable'
+            ? 'service'
+            : undefined;
+      if (role !== undefined) {
+        return role;
+      }
+    }
+  }
+  return undefined;
+}
+
 function createSymbolsForNode(
   node: ts.Node,
   parentKey: string,
+  angularDecoratorAliases: AngularDecoratorAliases,
   addSymbol: (
     node: ts.Node,
     name: string,
     kind: ParsedSymbol['kind'],
     parentKey: string,
     exported: boolean,
+    semanticRole?: ParsedSymbol['semanticRole'],
   ) => string | null,
 ): { readonly containerKey?: string } {
   if (ts.isVariableDeclaration(node)) {
@@ -400,7 +490,14 @@ function createSymbolsForNode(
       ? hasModifier(node, ts.SyntaxKind.ExportKeyword) ||
         hasModifier(node, ts.SyntaxKind.DefaultKeyword)
       : ts.isVariableDeclaration(node.parent) && isVariableExported(node.parent);
-    const key = addSymbol(node, name, 'class', parentKey, exported);
+    const key = addSymbol(
+      node,
+      name,
+      'class',
+      parentKey,
+      exported,
+      getClassSemanticRole(node, angularDecoratorAliases),
+    );
     return key === null ? {} : { containerKey: key };
   }
 

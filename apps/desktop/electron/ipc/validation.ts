@@ -4,6 +4,7 @@ import {
   graphCycleQuerySchema,
   graphDependencyQuerySchema,
   graphGenerationRequestSchema,
+  graphNeighborhoodQuerySchema,
   graphNodeQuerySchema,
   graphPathQuerySchema,
   scanConfigSchema,
@@ -33,6 +34,9 @@ export const graphGeneratePayloadSchema = graphGenerationRequestSchema;
 export const graphProjectPayloadSchema = z.object({ projectId: z.uuid() }).strict();
 export const graphQueryPayloadSchema = z
   .object({ projectId: z.uuid(), query: graphNodeQuerySchema })
+  .strict();
+export const graphNeighborhoodPayloadSchema = z
+  .object({ projectId: z.uuid(), query: graphNeighborhoodQuerySchema })
   .strict();
 export const graphDependenciesPayloadSchema = z
   .object({ projectId: z.uuid(), query: graphDependencyQuerySchema })
@@ -65,6 +69,7 @@ const payloadSchemas: Record<IpcChannel, z.ZodType> = {
   [IPC_CHANNELS.graphsGenerate]: graphGeneratePayloadSchema,
   [IPC_CHANNELS.graphsSummary]: graphProjectPayloadSchema,
   [IPC_CHANNELS.graphsQuery]: graphQueryPayloadSchema,
+  [IPC_CHANNELS.graphsNeighborhood]: graphNeighborhoodPayloadSchema,
   [IPC_CHANNELS.graphsDependencies]: graphDependenciesPayloadSchema,
   [IPC_CHANNELS.graphsShortestPath]: graphPathPayloadSchema,
   [IPC_CHANNELS.graphsCycles]: graphCyclesPayloadSchema,

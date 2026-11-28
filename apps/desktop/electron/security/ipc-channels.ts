@@ -3,6 +3,7 @@ import type {
   GraphCycleQuery,
   GraphDependencyQuery,
   GraphGenerationRequest,
+  GraphNeighborhoodQuery,
   GraphNodeQuery,
   GraphPathQuery,
   ScanConfig,
@@ -29,6 +30,7 @@ export const IPC_CHANNELS = {
   graphsGenerate: 'graphs:generate',
   graphsSummary: 'graphs:summary',
   graphsQuery: 'graphs:query',
+  graphsNeighborhood: 'graphs:neighborhood',
   graphsDependencies: 'graphs:dependencies',
   graphsShortestPath: 'graphs:shortest-path',
   graphsCycles: 'graphs:cycles',
@@ -80,6 +82,10 @@ export interface IpcPayloadByChannel {
   [IPC_CHANNELS.graphsGenerate]: GraphGenerationRequest;
   [IPC_CHANNELS.graphsSummary]: { readonly projectId: string };
   [IPC_CHANNELS.graphsQuery]: { readonly projectId: string; readonly query: GraphNodeQuery };
+  [IPC_CHANNELS.graphsNeighborhood]: {
+    readonly projectId: string;
+    readonly query: GraphNeighborhoodQuery;
+  };
   [IPC_CHANNELS.graphsDependencies]: {
     readonly projectId: string;
     readonly query: GraphDependencyQuery;

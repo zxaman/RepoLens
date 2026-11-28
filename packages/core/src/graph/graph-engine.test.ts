@@ -4,6 +4,8 @@ import {
   graphExportJsonSchema,
   graphExportSchema,
   graphSummarySchema,
+  graphNeighborhoodResultSchema,
+  GRAPH_MAX_QUERY_EDGES,
   type AnalysisResult,
   type GraphBuildProgress,
 } from '@repolens/shared';
@@ -320,6 +322,61 @@ describe('Graphology in-memory graph engine', () => {
     expect(graph.traverseDependencies({ relativePath: 'src/not-scanned.ts', depth: 1 })).toBeNull();
   });
 
+  it('returns only bounded relationships whose endpoints are present on the queried node page', async () => {
+    const graph = await buildProjectGraph(makeAnalysis());
+    const page = graph.queryNodes({ limit: 100 });
+    const nodeIds = new Set(page.nodes.map((node) => node.id));
+
+    expect(page.nodes).toHaveLength(9);
+    expect(page.edgesTruncated).toBe(false);
+    expect(page.edges.length).toBeGreaterThan(0);
+    expect(
+      page.edges.every((edge) => nodeIds.has(edge.sourceId) && nodeIds.has(edge.targetId)),
+    ).toBe(true);
+    expect(page.edges).toContainEqual(
+      expect.objectContaining({
+        type: 'imports',
+        sourceId: 'file:src/a.ts',
+        targetId: 'file:src/b.ts',
+      }),
+    );
+
+    const filesPage = graph.queryNodes({ types: ['file'], limit: 100 });
+    const fileIds = new Set(filesPage.nodes.map((node) => node.id));
+    expect(filesPage.edges.length).toBeGreaterThan(0);
+    expect(
+      filesPage.edges.every((edge) => fileIds.has(edge.sourceId) && fileIds.has(edge.targetId)),
+    ).toBe(true);
+  });
+
+  it('caps graph-query relationships and reports when the page is truncated', async () => {
+    const base = makeAnalysis();
+    const extraImports = Array.from({ length: GRAPH_MAX_QUERY_EDGES + 1 }, (_, index) => {
+      const suffix = index.toString().padStart(4, '0');
+      return importRecord(`imp:query-cap-${suffix}`, 'src/a.ts', './b', 20 + index);
+    });
+    const extraDependencies = extraImports.map((item, index) => {
+      const suffix = index.toString().padStart(4, '0');
+      return dependencyRecord(
+        `dep:query-cap-${suffix}`,
+        item.id,
+        'src/a.ts',
+        './b',
+        'local',
+        'src/b.ts',
+      );
+    });
+    const analysis = analysisResultSchema.parse({
+      ...base,
+      imports: [...base.imports, ...extraImports],
+      dependencies: [...base.dependencies, ...extraDependencies],
+    });
+    const page = (await buildProjectGraph(analysis)).queryNodes({ limit: 100 });
+
+    expect(page.edges).toHaveLength(GRAPH_MAX_QUERY_EDGES);
+    expect(page.edgesTruncated).toBe(true);
+  });
+
   it('queries nodes by type, name, path prefix, export status, and stable pagination', async () => {
     const graph = await buildProjectGraph(makeAnalysis());
 
@@ -339,6 +396,113 @@ describe('Graphology in-memory graph engine', () => {
     expect(
       graph.queryNodes({ types: ['file', 'function'], name: 'a', limit: 2, offset: 2 }).nodes,
     ).toHaveLength(1);
+  });
+
+  it('returns bounded directed neighborhoods with only real edges between returned nodes', async () => {
+    const graph = await buildProjectGraph(makeAnalysis());
+    const outgoing = graph.queryNeighborhood({
+      nodeId: 'file:src/a.ts',
+      direction: 'outgoing',
+      edgeTypes: ['imports'],
+      depth: 1,
+      limit: 10,
+    });
+
+    expect(graphNeighborhoodResultSchema.parse(outgoing)).toEqual(outgoing);
+    expect(outgoing).toMatchObject({
+      anchorNodeId: 'file:src/a.ts',
+      depth: 1,
+      limit: 10,
+      nodesTruncated: false,
+      edgesTruncated: false,
+    });
+    expect(outgoing?.nodes.map((node) => node.id)).toEqual(['file:src/a.ts', 'file:src/b.ts']);
+    expect(outgoing?.edges).toHaveLength(3);
+    expect(outgoing?.edges.every((edge) => edge.type === 'imports')).toBe(true);
+    expect(
+      outgoing?.edges.every(
+        (edge) =>
+          outgoing.nodes.some((node) => node.id === edge.sourceId) &&
+          outgoing.nodes.some((node) => node.id === edge.targetId),
+      ),
+    ).toBe(true);
+
+    const incoming = graph.queryNeighborhood({
+      nodeId: 'file:src/b.ts',
+      direction: 'incoming',
+      edgeTypes: ['imports'],
+      depth: 1,
+      limit: 10,
+    });
+    expect(incoming?.nodes.map((node) => node.id)).toEqual(['file:src/a.ts', 'file:src/b.ts']);
+    expect(incoming?.edges).toHaveLength(3);
+
+    const capped = graph.queryNeighborhood({
+      nodeId: 'file:src/a.ts',
+      direction: 'outgoing',
+      depth: 1,
+      limit: 1,
+    });
+    expect(capped).toMatchObject({ nodesTruncated: true, edges: [] });
+    expect(graph.queryNeighborhood({ nodeId: 'file:src/missing.ts' })).toBeNull();
+  });
+
+  it('caps neighborhood relationships and marks a full edge page as truncated', async () => {
+    const base = makeAnalysis();
+    const extraImports = Array.from({ length: GRAPH_MAX_QUERY_EDGES + 1 }, (_, index) => {
+      const suffix = index.toString().padStart(4, '0');
+      return importRecord(`imp:neighborhood-cap-${suffix}`, 'src/a.ts', './b', 20 + index);
+    });
+    const extraDependencies = extraImports.map((item, index) => {
+      const suffix = index.toString().padStart(4, '0');
+      return dependencyRecord(
+        `dep:neighborhood-cap-${suffix}`,
+        item.id,
+        'src/a.ts',
+        './b',
+        'local',
+        'src/b.ts',
+      );
+    });
+    const analysis = analysisResultSchema.parse({
+      ...base,
+      imports: [...base.imports, ...extraImports],
+      dependencies: [...base.dependencies, ...extraDependencies],
+    });
+    const neighborhood = (await buildProjectGraph(analysis)).queryNeighborhood({
+      nodeId: 'file:src/a.ts',
+      direction: 'outgoing',
+      edgeTypes: ['imports'],
+      depth: 1,
+      limit: 2,
+    });
+
+    if (neighborhood === null) {
+      throw new Error('Expected an existing file node neighborhood.');
+    }
+    expect(graphNeighborhoodResultSchema.parse(neighborhood)).toEqual(neighborhood);
+    expect(neighborhood.nodes).toHaveLength(2);
+    expect(neighborhood.edges).toHaveLength(GRAPH_MAX_QUERY_EDGES);
+    expect(neighborhood.edgesTruncated).toBe(true);
+  });
+
+  it('preserves Angular semantic roles when mapping source symbols to graph node types', async () => {
+    const analysis = makeAnalysis();
+    const graph = await buildProjectGraph({
+      ...analysis,
+      symbols: analysis.symbols.map((symbol) =>
+        symbol.id === 'src/b.ts#class:BService'
+          ? { ...symbol, semanticRole: 'service' as const }
+          : symbol,
+      ),
+    });
+    expect(graph.toExport().nodes).toContainEqual(
+      expect.objectContaining({
+        name: 'BService',
+        type: 'service',
+        symbolKind: 'class',
+      }),
+    );
   });
 
   it('returns canonical nonduplicate simple cycles and keeps SCCs distinct from cycle paths', async () => {

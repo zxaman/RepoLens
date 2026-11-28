@@ -13,6 +13,8 @@ export type {
   GraphGenerationReport,
   GraphGenerationRequest,
   GraphMetrics,
+  GraphNeighborhoodQuery,
+  GraphNeighborhoodResult,
   GraphNode,
   GraphNodeQuery,
   GraphNodeQueryResult,
@@ -28,6 +30,9 @@ export {
   GRAPH_MAX_EDGES,
   GRAPH_MAX_JSON_CHARS,
   GRAPH_MAX_NODES,
+  GRAPH_MAX_QUERY_EDGES,
+  GRAPH_MAX_NEIGHBORHOOD_DEPTH,
+  GRAPH_MAX_NEIGHBORHOOD_NODES,
   graphBuildProgressSchema,
   graphCycleQuerySchema,
   graphCycleReportSchema,
@@ -43,6 +48,8 @@ export {
   graphGenerationReportSchema,
   graphGenerationRequestSchema,
   graphMetricsSchema,
+  graphNeighborhoodQuerySchema,
+  graphNeighborhoodResultSchema,
   graphNodeQueryResultSchema,
   graphNodeQuerySchema,
   graphNodeSchema,
@@ -83,6 +90,7 @@ export {
   analysisStatusSchema,
   analysisSymbolKindSchema,
   analysisSymbolSchema,
+  analysisSymbolSemanticRoleSchema,
 } from './schemas/analysis.schema.js';
 export type { AppInfo } from './schemas/app-info.schema.js';
 export { appInfoSchema } from './schemas/app-info.schema.js';
@@ -126,6 +134,7 @@ export type {
 } from './schemas/scan.schema.js';
 export {
   DEFAULT_EXCLUDED_DIRECTORIES,
+  DEFAULT_EXCLUDED_PATTERNS,
   DEFAULT_SCAN_CONFIG,
   scanClassificationSchema,
   scanConfigSchema,

@@ -262,6 +262,150 @@ describe('framework-independent static analysis pipeline', () => {
     expect(JSON.stringify(result)).not.toContain('export function answer()');
   });
 
+  it('inherits path aliases from a scanned local tsconfig base and resolves them against the declaring config', async () => {
+    const files = [
+      configFile('tsconfig.base.json'),
+      configFile('tsconfig.json'),
+      sourceFile('src/entry.ts', 'TypeScript', 128),
+      sourceFile('src/util.ts'),
+      sourceFile('src/helper.ts'),
+    ];
+    const parser = new FixtureParser();
+    vi.spyOn(parser, 'parseResolutionConfig').mockImplementation((filePath) => ({
+      resolution:
+        filePath === 'tsconfig.base.json'
+          ? {
+              baseUrl: 'src',
+              paths: [{ pattern: '@/*', targets: ['*'] }],
+            }
+          : { extends: './tsconfig.base.json' },
+      diagnostics: [],
+    }));
+
+    const result = await analyzeScan({
+      analysisId,
+      scan: makeScan(files),
+      fileSystem: makeFileSystem({
+        'tsconfig.base.json': '{"compilerOptions":{"baseUrl":"src","paths":{"@/*":["*"]}}}',
+        'tsconfig.json': '{"extends":"./tsconfig.base.json"}',
+        'src/entry.ts': 'import { helper } from "@/helper";',
+        'src/util.ts': 'export const util = 1;',
+        'src/helper.ts': 'export const helper = 1;',
+      }),
+      parsers: [parser],
+      now: fixedNow,
+    });
+
+    expect(result.dependencies).toContainEqual(
+      expect.objectContaining({
+        specifier: '@/helper',
+        kind: 'alias',
+        resolvedPath: 'src/helper.ts',
+      }),
+    );
+    expect(result.diagnostics).not.toContainEqual(
+      expect.objectContaining({ code: 'TSCONFIG_EXTENDS_UNSUPPORTED' }),
+    );
+  });
+
+  it('uses one nearest specialized tsconfig when no tsconfig.json exists in that directory', async () => {
+    const files = [
+      configFile('tsconfig.json'),
+      configFile('apps/web/tsconfig.app.json'),
+      sourceFile('apps/web/src/entry.ts', 'TypeScript', 128),
+      sourceFile('src/helper.ts'),
+    ];
+    const parser = new FixtureParser();
+    const parseDefault = parser.parse.getMockImplementation();
+    if (parseDefault === undefined) {
+      throw new Error('The fixture parser has no default source parser.');
+    }
+    parser.parse.mockImplementation((filePath) =>
+      filePath === 'apps/web/src/entry.ts' ? makeEntryAst(filePath) : parseDefault(filePath),
+    );
+    vi.spyOn(parser, 'parseResolutionConfig').mockImplementation((filePath) => ({
+      resolution:
+        filePath === 'tsconfig.json'
+          ? {
+              baseUrl: 'src',
+              paths: [{ pattern: '@/*', targets: ['*'] }],
+            }
+          : { extends: '../../tsconfig.json' },
+      diagnostics: [],
+    }));
+
+    const result = await analyzeScan({
+      analysisId,
+      scan: makeScan(files),
+      fileSystem: makeFileSystem({
+        'tsconfig.json': '{"compilerOptions":{"baseUrl":"src","paths":{"@/*":["*"]}}}',
+        'apps/web/tsconfig.app.json': '{"extends":"../../tsconfig.json"}',
+        'apps/web/src/entry.ts': 'import { helper } from "@/helper";',
+        'src/helper.ts': 'export const helper = 1;',
+      }),
+      parsers: [parser],
+      now: fixedNow,
+    });
+
+    expect(result.dependencies).toContainEqual(
+      expect.objectContaining({
+        specifier: '@/helper',
+        kind: 'alias',
+        resolvedPath: 'src/helper.ts',
+      }),
+    );
+  });
+
+  it('fails closed on package-based tsconfig inheritance outside the scanned project', async () => {
+    const parser = new FixtureParser();
+    vi.spyOn(parser, 'parseResolutionConfig').mockReturnValue({
+      resolution: { extends: '@acme/repolens-config/base' },
+      diagnostics: [],
+    });
+    const fileSystem = makeFileSystem({
+      'tsconfig.json': '{"extends":"@acme/repolens-config/base"}',
+      'src/entry.ts': 'import { helper } from "@/helper";',
+    });
+    const result = await analyzeScan({
+      analysisId,
+      scan: makeScan([configFile('tsconfig.json'), sourceFile('src/entry.ts', 'TypeScript', 128)]),
+      fileSystem,
+      parsers: [parser],
+      now: fixedNow,
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'TSCONFIG_EXTENDS_UNSUPPORTED',
+        filePath: 'tsconfig.json',
+      }),
+    );
+    expect(result.dependencies).toContainEqual(
+      expect.objectContaining({ specifier: '@/helper', kind: 'unresolved' }),
+    );
+    expect(fileSystem.readTextFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves explicit extensionless JSON imports only against inventoried JSON files', async () => {
+    const result = await analyzeScan({
+      analysisId,
+      scan: makeScan([sourceFile('src/entry.ts'), configFile('src/util.json')]),
+      fileSystem: makeFileSystem({
+        'src/entry.ts': 'import data from "./util";',
+        'src/util.json': '{"answer":42}',
+      }),
+      parsers: [new FixtureParser()],
+      now: fixedNow,
+    });
+
+    expect(
+      result.dependencies.find((dependency) => dependency.specifier === './util'),
+    ).toMatchObject({
+      kind: 'local',
+      resolvedPath: 'src/util.json',
+    });
+  });
+
   it('keeps partial results when a discovered file cannot be read', async () => {
     const scan = makeScan([sourceFile('src/entry.ts'), sourceFile('src/unavailable.ts')]);
     const parser = new FixtureParser();

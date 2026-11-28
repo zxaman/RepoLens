@@ -63,6 +63,26 @@ describe('static-analysis schemas', () => {
     ).toBe(false);
   });
 
+  it('accepts only the bounded optional Angular semantic roles for symbols', () => {
+    const moduleSymbol = result.symbols[0];
+    expect(moduleSymbol).toBeDefined();
+    const classSymbol = {
+      ...moduleSymbol!,
+      id: 'src/index.ts#class:AppComponent',
+      name: 'AppComponent',
+      kind: 'class' as const,
+    };
+    expect(
+      analysisSymbolSchema.safeParse({ ...classSymbol, semanticRole: 'component' }).success,
+    ).toBe(true);
+    expect(analysisSymbolSchema.safeParse({ ...classSymbol, semanticRole: 'model' }).success).toBe(
+      false,
+    );
+    expect(
+      analysisSymbolSchema.safeParse({ ...moduleSymbol!, semanticRole: 'component' }).success,
+    ).toBe(false);
+  });
+
   it('ties analysis counts and every parser record to unique successfully analyzed files', () => {
     expect(analysisResultSchema.safeParse({ ...result, analyzedFiles: [] }).success).toBe(false);
     expect(

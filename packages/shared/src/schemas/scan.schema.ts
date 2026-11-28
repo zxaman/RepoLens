@@ -8,11 +8,42 @@ export const DEFAULT_EXCLUDED_DIRECTORIES = [
   'coverage',
   '.angular',
   'vendor',
+  'bower_components',
   '.next',
   '.nuxt',
+  '.output',
+  '.svelte-kit',
+  '.vercel',
+  '.netlify',
+  '.turbo',
+  '.parcel-cache',
+  '.vite',
   '.cache',
   '.tmp',
   'temp',
+  'tmp',
+  'out',
+  'output',
+  'release',
+  'target',
+  '.gradle',
+  'Pods',
+  'DerivedData',
+  'storybook-static',
+  'playwright-report',
+  'test-results',
+] as const;
+
+export const DEFAULT_EXCLUDED_PATTERNS = [
+  '**/chunk-*.js',
+  '**/chunk-*.mjs',
+  '**/*.chunk.js',
+  '**/*.chunk.mjs',
+  '**/*.bundle.js',
+  '**/*.bundle.mjs',
+  '**/*.map',
+  'android/app/src/main/assets/public',
+  'ios/App/App/public',
 ] as const;
 
 export const scanStatusSchema = z.enum(['completed', 'failed', 'cancelled']);
@@ -84,7 +115,10 @@ export const scanConfigSchema = z
       .array(exclusionDirectorySchema)
       .max(100)
       .default([...DEFAULT_EXCLUDED_DIRECTORIES]),
-    excludePatterns: z.array(exclusionPatternSchema).max(100).default([]),
+    excludePatterns: z
+      .array(exclusionPatternSchema)
+      .max(100)
+      .default([...DEFAULT_EXCLUDED_PATTERNS]),
     includeSensitiveFiles: z.boolean().default(false),
     acknowledgeSensitiveFileRisk: z.boolean().default(false),
     maxHashBytes: z.number().int().min(0).max(1_073_741_824).default(52_428_800),

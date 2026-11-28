@@ -1,12 +1,15 @@
 import { DatePipe } from '@angular/common';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, Router } from '@angular/router';
+import { By } from '@angular/platform-browser';
+import cytoscape from 'cytoscape';
 import { BehaviorSubject } from 'rxjs';
 import {
   analysisResultSchema,
   DEFAULT_APP_SETTINGS,
   graphCycleReportSchema,
   graphGenerationReportSchema,
+  graphNeighborhoodResultSchema,
   graphNodeQueryResultSchema,
   graphSummarySchema,
   scanHistoryItemSchema,
@@ -21,8 +24,12 @@ import {
 } from '@repolens/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsService } from '../../settings/settings.service';
-import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
 import { AnalysisService } from '../services/analysis.service';
+import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
+import {
+  CYTOSCAPE_FACTORY,
+  GraphVisualizationComponent,
+} from '../components/graph-visualization.component';
 import { GraphService } from '../services/graph.service';
 import { ProjectService } from '../services/project.service';
 import { ScanService } from '../services/scan.service';
@@ -242,13 +249,72 @@ const graphNodes = graphNodeQueryResultSchema.parse({
       id: 'file:src/index.ts',
       projectId: project.id,
       type: 'file',
-      name: 'src/index.ts',
+      name: 'index.ts',
       relativePath: 'src/index.ts',
     },
+    {
+      id: `project:${project.id}`,
+      projectId: project.id,
+      type: 'project',
+      name: 'fixture-project',
+    },
   ],
-  total: 1,
+  edges: [
+    {
+      id: 'edge:contains:project:file',
+      projectId: project.id,
+      type: 'contains',
+      sourceId: `project:${project.id}`,
+      targetId: 'file:src/index.ts',
+    },
+  ],
+  edgesTruncated: false,
+  total: 2,
   offset: 0,
   limit: 100,
+});
+const graphSecondSearchPage = graphNodeQueryResultSchema.parse({
+  nodes: [
+    {
+      id: 'symbol:src/app.component.ts#class:AppComponent',
+      projectId: project.id,
+      type: 'component',
+      name: 'AppComponent',
+      filePath: 'src/app.component.ts',
+      symbolId: 'src/app.component.ts#class:AppComponent',
+      symbolKind: 'class',
+      location: {
+        filePath: 'src/app.component.ts',
+        startLine: 4,
+        startColumn: 1,
+        endLine: 4,
+        endColumn: 29,
+      },
+    },
+  ],
+  edges: [],
+  edgesTruncated: false,
+  total: 3,
+  offset: 2,
+  limit: 100,
+});
+const graphNeighborhood = graphNeighborhoodResultSchema.parse({
+  anchorNodeId: `project:${project.id}`,
+  depth: 2,
+  limit: 180,
+  nodes: graphNodes.nodes,
+  edges: graphNodes.edges,
+  nodesTruncated: false,
+  edgesTruncated: false,
+});
+const fileNeighborhood = graphNeighborhoodResultSchema.parse({
+  anchorNodeId: 'file:src/index.ts',
+  depth: 1,
+  limit: 250,
+  nodes: graphNodes.nodes,
+  edges: graphNodes.edges,
+  nodesTruncated: false,
+  edgesTruncated: false,
 });
 const graphCycles = graphCycleReportSchema.parse({
   projectId: project.id,
@@ -282,6 +348,7 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
     generate: ReturnType<typeof vi.fn>;
     summary: ReturnType<typeof vi.fn>;
     query: ReturnType<typeof vi.fn>;
+    neighborhood: ReturnType<typeof vi.fn>;
     cycles: ReturnType<typeof vi.fn>;
     onProgress: ReturnType<typeof vi.fn>;
   };
@@ -319,6 +386,7 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
       generate: vi.fn(async () => graphReport),
       summary: vi.fn(async () => graphSummary),
       query: vi.fn(async () => graphNodes),
+      neighborhood: vi.fn(async () => graphNeighborhood),
       cycles: vi.fn(async () => graphCycles),
       onProgress: vi.fn((callback: (progress: GraphBuildProgress) => void) => {
         graphProgressListener = callback;
@@ -340,6 +408,14 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
         { provide: AnalysisService, useValue: analysisService },
         { provide: GraphService, useValue: graphService },
         {
+          provide: CYTOSCAPE_FACTORY,
+          useValue: (options: cytoscape.CytoscapeOptions) => {
+            const headlessOptions = { ...options };
+            delete headlessOptions.container;
+            return cytoscape({ ...headlessOptions, headless: true });
+          },
+        },
+        {
           provide: SettingsService,
           useValue: { load: async () => ({ ...DEFAULT_APP_SETTINGS }) },
         },
@@ -348,7 +424,9 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
       ],
     })
       .overrideComponent(ProjectDetailsPageComponent, {
-        set: { imports: [DatePipe, ConfirmRemoveDialogComponent] },
+        set: {
+          imports: [DatePipe, ConfirmRemoveDialogComponent, GraphVisualizationComponent],
+        },
       })
       .compileComponents();
   });
@@ -430,18 +508,98 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
     expect(page.textContent).toContain('Building graph nodes');
     await generation;
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
     expect(graphService.generate).toHaveBeenCalledWith(
       project.id,
       result.id,
       analysisResult.analysisId,
     );
     expect(graphService.summary).toHaveBeenCalledWith(project.id);
-    expect(graphService.query).toHaveBeenCalledWith(project.id, { limit: 100 });
+    expect(graphService.query).not.toHaveBeenCalled();
+    expect(graphService.neighborhood).toHaveBeenCalledWith(
+      project.id,
+      expect.objectContaining({
+        nodeId: `project:${project.id}`,
+        depth: 2,
+        direction: 'both',
+      }),
+    );
     expect(page.textContent).toContain('Dependency graph');
     expect(page.textContent).toContain('graph nodes');
-    expect(page.textContent).toContain('Graph nodes (1 shown)');
-    expect(page.textContent).toContain('src/index.ts');
+    expect(page.textContent).toContain('Architecture Explorer');
+    expect(page.textContent).toContain('2 nodes and 1 relationships loaded for this view');
+    expect(page.querySelector('.graph-canvas')).not.toBeNull();
     expect(page.textContent).toContain('Cycle paths (0 found)');
+
+    const explorer = fixture.debugElement.query(By.directive(GraphVisualizationComponent))
+      .componentInstance as GraphVisualizationComponent;
+    explorer.searchName.set('AppComponent');
+    explorer.toggleNodeType('service', false);
+    graphService.query
+      .mockResolvedValueOnce(graphNodeQueryResultSchema.parse({ ...graphNodes, total: 3 }))
+      .mockResolvedValueOnce(graphSecondSearchPage);
+    await explorer.searchGraph();
+    fixture.detectChanges();
+    expect(explorer.mode()).toBe('search');
+    expect(explorer.searchLoaded()).toBe(2);
+    expect(explorer.searchHasMore()).toBe(true);
+    expect(graphService.query).toHaveBeenNthCalledWith(
+      1,
+      project.id,
+      expect.objectContaining({
+        name: 'AppComponent',
+        limit: 100,
+        offset: 0,
+        types: expect.not.arrayContaining(['service']),
+      }),
+    );
+
+    explorer.searchName.set('Unsubmitted search change');
+    await explorer.loadMoreSearchResults();
+    fixture.detectChanges();
+    expect(explorer.searchLoaded()).toBe(3);
+    expect(explorer.searchHasMore()).toBe(false);
+    expect(explorer.nodes()).toHaveLength(3);
+    expect(graphService.query).toHaveBeenNthCalledWith(
+      2,
+      project.id,
+      expect.objectContaining({ name: 'AppComponent', offset: 2, limit: 100 }),
+    );
+
+    explorer.searchName.set('UserService');
+    graphService.query.mockResolvedValueOnce(graphNodes);
+    explorer.toggleNodeType('component', false);
+    await vi.waitFor(() => expect(graphService.query).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(explorer.searchLoading()).toBe(false));
+    expect(explorer.searchLoaded()).toBe(2);
+    expect(graphService.query).toHaveBeenNthCalledWith(
+      3,
+      project.id,
+      expect.objectContaining({
+        name: 'UserService',
+        offset: 0,
+        limit: 100,
+        types: expect.not.arrayContaining(['component']),
+      }),
+    );
+
+    explorer.selectNodeById('file:src/index.ts');
+    explorer.setNeighborhoodDepth('1');
+    explorer.setNeighborhoodDirection('incoming');
+    graphService.neighborhood.mockResolvedValueOnce(fileNeighborhood);
+    await explorer.exploreSelectedNode();
+    fixture.detectChanges();
+    expect(explorer.mode()).toBe('neighborhood');
+    expect(graphService.neighborhood).toHaveBeenLastCalledWith(
+      project.id,
+      expect.objectContaining({
+        nodeId: 'file:src/index.ts',
+        direction: 'incoming',
+        depth: 1,
+        limit: 250,
+      }),
+    );
   });
 
   it('shows analysis progress, cancels an in-flight worker, and surfaces worker errors', async () => {
