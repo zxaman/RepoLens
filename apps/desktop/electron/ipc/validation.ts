@@ -20,6 +20,10 @@ export const projectScanPayloadSchema = z
   .strict();
 
 export const projectScanIdPayloadSchema = z.object({ projectId: z.uuid() }).strict();
+export const analysisStartPayloadSchema = z
+  .object({ projectId: z.uuid(), scanId: z.uuid() })
+  .strict();
+export const analysisIdPayloadSchema = z.object({ analysisId: z.uuid() }).strict();
 
 const payloadSchemas: Record<IpcChannel, z.ZodType> = {
   [IPC_CHANNELS.appGetVersion]: noPayloadIpcSchema,
@@ -37,6 +41,8 @@ const payloadSchemas: Record<IpcChannel, z.ZodType> = {
   [IPC_CHANNELS.scansCancel]: scanIdPayloadSchema,
   [IPC_CHANNELS.scansGetHistory]: projectScanIdPayloadSchema,
   [IPC_CHANNELS.scansGetLatest]: projectScanIdPayloadSchema,
+  [IPC_CHANNELS.analysisStart]: analysisStartPayloadSchema,
+  [IPC_CHANNELS.analysisCancel]: analysisIdPayloadSchema,
   [IPC_CHANNELS.settingsGet]: noPayloadIpcSchema,
   [IPC_CHANNELS.settingsUpdate]: appSettingsSchema,
   [IPC_CHANNELS.settingsReset]: noPayloadIpcSchema,

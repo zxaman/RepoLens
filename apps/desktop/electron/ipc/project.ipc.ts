@@ -9,6 +9,7 @@ import {
 } from '@repolens/shared';
 import type { IpcMain } from 'electron';
 import { toProjectOperationError } from '../services/project-errors.js';
+import type { AnalysisManagementService } from '../services/analysis-management.service.js';
 import type { ProjectManagementService } from '../services/project-management.service.js';
 import type { ScanManagementService } from '../services/scan-management.service.js';
 import { IPC_CHANNELS } from '../security/ipc-channels.js';
@@ -24,6 +25,7 @@ export function registerProjectIpc(
   ipcMain: Pick<IpcMain, 'handle'>,
   projects: ProjectManagementService,
   scans: ScanManagementService,
+  analyses: AnalysisManagementService,
   senderGuard: IpcSenderGuard,
 ): void {
   registerValidatedHandler(
@@ -87,7 +89,10 @@ export function registerProjectIpc(
     IPC_CHANNELS.projectsRemove,
     senderGuard,
     projectIdPayloadSchema,
-    ({ id }) => safely('remove project', () => scans.removeProject(id, () => projects.remove(id))),
+    ({ id }) =>
+      safely('remove project', () =>
+        analyses.removeProject(id, () => scans.removeProject(id, () => projects.remove(id))),
+      ),
     invalidPayloadAsResult<{ readonly removed: true }>(),
   );
   registerValidatedHandler(

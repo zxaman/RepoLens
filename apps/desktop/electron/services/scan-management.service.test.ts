@@ -167,6 +167,8 @@ describe('scan management service', () => {
     await expect(service.cancel(input.scanId)).resolves.toEqual({ cancelled: true });
     const result = await startRequest;
     expect(result).toMatchObject({ id: input.scanId, projectId, status: 'cancelled', files: [] });
+    expect(service.getCurrentResult(projectId, input.scanId)).toEqual(result);
+    expect(service.getCurrentResult(projectId, '00000000-0000-4000-8000-000000000000')).toBeNull();
     expect(worker.cancel).toHaveBeenCalledOnce();
     expect(worker.terminate).toHaveBeenCalledOnce();
     const historyItem = history.items[0];
@@ -178,6 +180,7 @@ describe('scan management service', () => {
       removed: true,
     });
     expect(removeRegistration).toHaveBeenCalledOnce();
+    expect(service.getCurrentResult(projectId, input.scanId)).toBeNull();
     await expect(service.getHistory(projectId)).resolves.toEqual([]);
   });
 

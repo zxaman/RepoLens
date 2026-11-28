@@ -59,7 +59,7 @@ describe('secure preload bridge', () => {
     expect(electronMocks.exposedWorld.has('ipcRenderer')).toBe(false);
 
     const api = rawApi as RepoLensAPI;
-    expect(Object.keys(api).sort()).toEqual(['app', 'projects', 'scans', 'settings']);
+    expect(Object.keys(api).sort()).toEqual(['analysis', 'app', 'projects', 'scans', 'settings']);
     expect(Object.keys(api.app).sort()).toEqual(['getPlatform', 'getVersion']);
     expect(Object.keys(api.projects).sort()).toEqual([
       'cancelImport',
@@ -72,6 +72,7 @@ describe('secure preload bridge', () => {
       'remove',
       'setActive',
     ]);
+    expect(Object.keys(api.analysis).sort()).toEqual(['cancel', 'onProgress', 'start']);
     expect('send' in api).toBe(false);
     expect('invoke' in api).toBe(false);
 
@@ -97,6 +98,18 @@ describe('secure preload bridge', () => {
       ok: false,
       error: { code: 'NOT_IMPLEMENTED' },
     });
+    await expect(
+      api.analysis.start(
+        'a1b2c3d4-e5f6-47a8-9012-abcdef123456',
+        '92370c1b-8755-4057-ae23-0d885ad4d94b',
+      ),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'NOT_IMPLEMENTED' } });
+    await expect(
+      api.analysis.cancel('7d707ca0-312b-4a6f-8950-8df3441d973a'),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'NOT_IMPLEMENTED' },
+    });
 
     const settings = { ...DEFAULT_APP_SETTINGS, theme: 'light' as const };
     await expect(api.settings.get()).resolves.toEqual({ ok: true, data: DEFAULT_APP_SETTINGS });
@@ -105,6 +118,13 @@ describe('secure preload bridge', () => {
 
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.projectsSetActive, {
       id: 'a1b2c3d4-e5f6-47a8-9012-abcdef123456',
+    });
+    expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.analysisStart, {
+      projectId: 'a1b2c3d4-e5f6-47a8-9012-abcdef123456',
+      scanId: '92370c1b-8755-4057-ae23-0d885ad4d94b',
+    });
+    expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.analysisCancel, {
+      analysisId: '7d707ca0-312b-4a6f-8950-8df3441d973a',
     });
     expect(electronMocks.invoke).toHaveBeenCalledWith(IPC_CHANNELS.settingsUpdate, settings);
   });
@@ -136,5 +156,24 @@ describe('secure preload bridge', () => {
       expect.any(Function),
     );
     expect(electronMocks.eventListeners.has(IPC_EVENTS.scansProgress)).toBe(false);
+
+    const analysisCallback = vi.fn();
+    const unsubscribeAnalysis = api.analysis.onProgress(analysisCallback);
+    const analysisListener = electronMocks.eventListeners.get(IPC_EVENTS.analysisProgress);
+    const analysisProgress = {
+      analysisId: '7d707ca0-312b-4a6f-8950-8df3441d973a',
+      scanId: '92370c1b-8755-4057-ae23-0d885ad4d94b',
+      projectId: 'a1b2c3d4-e5f6-47a8-9012-abcdef123456',
+      phase: 'parsing',
+      filesTotal: 1,
+      filesProcessed: 0,
+      currentPath: 'src/index.ts',
+    };
+    analysisListener?.({}, analysisProgress);
+    analysisListener?.({}, { ...analysisProgress, currentPath: '../outside.ts' });
+    expect(analysisCallback).toHaveBeenCalledOnce();
+    expect(analysisCallback).toHaveBeenCalledWith(analysisProgress);
+    unsubscribeAnalysis();
+    expect(electronMocks.eventListeners.has(IPC_EVENTS.analysisProgress)).toBe(false);
   });
 });

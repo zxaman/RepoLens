@@ -1,4 +1,35 @@
 export type { RepoLensAPI } from './interfaces/repo-lens-api.js';
+export type {
+  AnalysisDependency,
+  AnalysisDiagnostic,
+  AnalysisExport,
+  AnalysisImport,
+  AnalysisImportBinding,
+  AnalysisPhase,
+  AnalysisProgress,
+  AnalysisResult,
+  AnalysisStatus,
+  AnalysisSymbol,
+} from './schemas/analysis.schema.js';
+export {
+  analysisDependencyKindSchema,
+  analysisDependencySchema,
+  analysisDiagnosticCodeSchema,
+  analysisDiagnosticSchema,
+  analysisDiagnosticSeveritySchema,
+  analysisExportKindSchema,
+  analysisExportSchema,
+  analysisImportBindingKindSchema,
+  analysisImportBindingSchema,
+  analysisImportKindSchema,
+  analysisImportSchema,
+  analysisPhaseSchema,
+  analysisProgressSchema,
+  analysisResultSchema,
+  analysisStatusSchema,
+  analysisSymbolKindSchema,
+  analysisSymbolSchema,
+} from './schemas/analysis.schema.js';
 export type { AppInfo } from './schemas/app-info.schema.js';
 export { appInfoSchema } from './schemas/app-info.schema.js';
 export type { AppSettings } from './schemas/app-settings.schema.js';

@@ -6,19 +6,23 @@
 Angular renderer (standalone, browser-only)
    │ narrow window.repolens API
    ▼
-Electron preload (contextBridge; sandboxed; Zod response validation)
-   │ fixed invoke channels + one validated progress event
+Sandboxed CommonJS preload (contextBridge; Zod response validation)
+   │ fixed invoke channels + validated progress events
    ▼
-Electron main (sender checks, Zod request validation, CSP)
+Electron ESM main (sender checks, Zod request validation, CSP)
    ├── ProjectManagementService ──► native folder picker / JSON project registry
    ├── AppSettingsService ────────► JSON settings file
-   └── ScanManagementService ─────► bounded JSON scan-history summaries
-                  │ start/cancel
-                  ▼
-          Electron worker thread
-                  │ narrow NodeScanFileSystem adapter
-                  ▼
-          @repolens/core scanner ──► @repolens/shared contracts
+   ├── ScanManagementService ─────► bounded JSON summaries + latest full scan in memory
+   └── AnalysisManagementService ─► transient analysis lifecycle
+             │ start/cancel                     │ start/cancel
+             ▼                                  ▼
+    Scan worker thread                Analysis worker thread
+             │ NodeScanFileSystem                │ inventory-scoped NodeAnalysisFileSystem
+             ▼                                  ▼
+    @repolens/core scanner ─────────── @repolens/core static analysis
+                                                 │ TypeScript Compiler API
+                                                 ▼
+                                        @repolens/language-support
 
 RepoLens CLI ─────────────────────► @repolens/core (foundation; no scan command)
 Angular renderer ─────────────────► @repolens/shared
@@ -28,12 +32,12 @@ There is no separate backend server. The Angular dev server is used only for ren
 
 ## Package boundaries
 
-- `apps/desktop/src` is browser code. It imports neither Node.js filesystem APIs nor Electron modules. Project and scan operations go through the typed preload bridge.
-- `apps/desktop/electron` is the trusted local application layer. It owns the native folder picker, path validation, worker lifecycle, Node filesystem adapter, IPC, and local persistence.
+- `apps/desktop/src` is browser code. It imports neither Node.js filesystem APIs nor Electron modules. Project, scan, and static-analysis operations go through the typed preload bridge.
+- `apps/desktop/electron` is the trusted local application layer. The ESM main process owns the native folder picker, path validation, worker lifecycle, Node filesystem adapters, IPC, and local persistence; the sandboxed preload is emitted as CommonJS (`preload.cjs`).
 - `apps/cli` is a Node.js executable foundation; it currently exposes version/help only and does not scan projects.
-- `packages/shared` owns Zod-validated project, scan, import, settings, progress, history, and result contracts. It has no application-layer dependencies.
-- `packages/core` contains the reusable scanner engine and the earlier analysis-context contracts. The scanner depends on a narrow `ScanFileSystem` interface and shared schemas, not Angular, Electron, or Node APIs.
-- `packages/language-support` defines a parser extension point; no AST/symbol parser is registered.
+- `packages/shared` owns Zod-validated project, scan, static-analysis, import, settings, progress, history, and result contracts. It has no application-layer dependencies.
+- `packages/core` contains the reusable scanner engine and bounded static-analysis pipeline. The scanner and analyzer depend on narrow filesystem/parser interfaces and shared schemas, not Angular or Electron.
+- `packages/language-support` implements the parser extension point with a TypeScript Compiler API parser for TypeScript/TSX/JavaScript/JSX syntax.
 - `packages/database` defines the Drizzle/SQLite connection boundary; it has no schema, driver initialization, migrations, or persistence operations yet.
 - `packages/export` defines future export contracts and stays separate from the UI.
 - `packages/ai` defines an optional provider contract. It is not a startup dependency and contains no network provider.
@@ -58,24 +62,34 @@ Project registration and metadata refresh do not trigger a scan. The scan button
 2. The worker validates its one-shot request, creates the Electron-owned `NodeScanFileSystem` adapter, and calls the framework-independent `scanProject` engine from `@repolens/core`.
 3. The core engine canonicalizes and verifies the root, reads bounded root ignore files, walks directories iteratively, checks symlink targets against the canonical root, classifies files, computes extension-based language statistics, reads bounded `package.json` evidence, and streams eligible files through SHA-256 hashing.
 4. The worker sends throttled, schema-validated progress and a schema-validated `ScanResult` back to main. Cancellation travels from a fixed IPC channel to the worker and aborts the core engine at asynchronous work boundaries.
-5. Main validates the result, persists a summary to scan history, and returns the full current result to the renderer. Per-file metadata and hashes stay in memory only while the project page is open; history is summary-only.
+5. Main validates the result, persists a summary to scan history, retains the latest full result in memory for analysis, and returns that result to the renderer. Per-file metadata and hashes remain memory-only; history is summary-only.
 
 The scanner never executes repository code, package scripts, shell commands, or dependency managers; it never modifies or uploads the imported repository. See [Scanner](SCANNING.md) for classifications, defaults, limits, ignore precedence, and known limitations.
+
+## Static-analysis flow
+
+1. The renderer calls `analysis.start(projectId, scanId)` only after a scan result is available. Main looks up the registered project and requires the exact current full `ScanResult` held in `ScanManagementService` memory; it never starts another scan or substitutes a persisted summary.
+2. Main creates a one-shot analysis worker and sends the project root and validated scan inventory. The worker checks the request, and `NodeAnalysisFileSystem` accepts only normalized relative paths present in the inventory and contained by the registered root.
+3. `@repolens/core` selects eligible TypeScript/JavaScript source files, applies file/count/byte/result/config limits, and calls the registered `TypeScriptParser` from `@repolens/language-support`. Resolution is restricted to scanned file paths and scanned `tsconfig` baseUrl/path aliases; ambiguous targets are not guessed.
+4. The worker sends schema-validated progress and a validated `AnalysisResult`. Cancellation is cooperative at async work boundaries. Main returns the result to the renderer but does not persist it or the source text.
+5. The project-details page holds analysis results only in its component state and clears them on navigation. The latest full scan and analysis/source contents are application-memory only; saved scan history remains summary-only.
+
+Analysis is syntax extraction, not type checking or program execution. Its bounded behavior and explicit non-goals are documented in [Static Analysis](STATIC_ANALYSIS.md).
 
 ## Persistence and settings
 
 - `JsonProjectRepository` implements `ProjectRepository` and stores a version-1 registry at `app.getPath('userData')/project-registry.json`. The registry contains projects and the active project ID.
 - `JsonSettingsRepository` implements a separate `SettingsRepository` and stores `settings.json` in the same application-data directory.
-- `JsonScanHistoryRepository` stores a versioned `scan-history.json`, with at most 50 validated summary items per project. Full file lists and hashes are not persisted.
+- `JsonScanHistoryRepository` stores a versioned `scan-history.json`, with at most 50 validated summary items per project. Full file lists and hashes are not persisted. `ScanManagementService` retains only the latest full scan result in memory so Phase 4 can reuse it; analysis results and source text are never persisted.
 - Writes use a unique same-directory temporary file, restrictive file permissions, file sync, and rename. Malformed or schema-invalid JSON is moved to a timestamped quarantine path before the service falls back to safe defaults.
 - These interfaces are the replacement seam for future persistence. SQLite/Drizzle and JSON-to-SQLite migration are not implemented.
 - The saved theme is applied to the document root; a `system` preference defers to the operating system color-scheme preference. A configured default project is selected at application startup, but this does not trigger a scan.
 
 ## Shared contracts and IPC
 
-`packages/shared` defines strict project, import-preview/result, settings, scan config/file/result/progress/history, and app-error schemas. Main validates every request; the preload validates every response and the progress event before passing it to Angular. IPC channels and payload shapes are fixed and allowlisted; sender frame and top-level main-frame URLs must match the trusted renderer.
+`packages/shared` defines strict project, import-preview/result, settings, scan config/file/result/progress/history, analysis result/progress, and app-error schemas. Main validates every request; the preload validates every response and progress event before passing it to Angular. IPC channels and payload shapes are fixed and allowlisted; sender frame and top-level main-frame URLs must match the trusted renderer.
 
-The renderer receives only project IDs and scan options. Filesystem paths remain in the registry/main process. The progress API returns a disposer; it does not expose `ipcRenderer`, arbitrary channels, or unrestricted event listeners. See [IPC architecture](IPC_ARCHITECTURE.md) for the full boundary and window protections.
+The renderer receives only project IDs and scan/analysis IDs plus scan options. Filesystem paths remain in the registry/main process. Scan and analysis progress APIs return disposers; they do not expose `ipcRenderer`, arbitrary channels, or unrestricted event listeners. See [IPC architecture](IPC_ARCHITECTURE.md) for the complete API, boundary, and window protections.
 
 ## Angular migration
 

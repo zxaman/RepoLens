@@ -630,3 +630,32 @@ td:last-child {
     gap: 0.3rem;
   }
 }
+
+.analysis-status {
+  text-transform: capitalize;
+}
+
+.analysis-status-partial,
+.analysis-diagnostics strong {
+  color: var(--rl-warning);
+}
+
+.analysis-browser input {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0.65rem 0;
+  padding: 0.55rem;
+  border: 1px solid var(--rl-border);
+  border-radius: 0.45rem;
+  color: var(--rl-text);
+  background: var(--rl-background, var(--rl-card));
+  font: inherit;
+}
+
+.analysis-diagnostics strong {
+  text-transform: uppercase;
+}
+
+.analysis-diagnostics .diagnostic-error {
+  color: var(--rl-danger);
+}

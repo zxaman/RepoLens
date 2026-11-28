@@ -10,10 +10,10 @@ RepoLens scans only an explicitly registered project. The Angular renderer sends
 4. Applies mandatory exclusions, sensitive-path defaults, built-in/user exclusions, and project ignore rules in the precedence below.
 5. Classifies discovered files as source, configuration, package manifest, documentation, asset, or other; records relative path, extension, size, modified time, and an extension-derived language where known.
 6. Computes streaming SHA-256 digests for eligible files under the configured per-file size limit. The default limit is 50 MiB; the schema permits up to 1 GiB. Larger files are listed with `skipped-size-limit` and no digest.
-7. Reads `package.json` manifests (up to 1 MiB each) for allowlisted declared package names and a Node engine declaration; other configuration evidence is filename-based. It never executes package scripts, imports project code, resolves/installs dependencies, or inspects ASTs/symbols.
+7. Reads `package.json` manifests (up to 1 MiB each) for allowlisted declared package names and a Node engine declaration; other configuration evidence is filename-based. The scanner itself never executes package scripts, imports project code, resolves/installs dependencies, or inspects ASTs/symbols. A separate explicit Phase 4 analysis action consumes the validated scan inventory; see [Static Analysis](STATIC_ANALYSIS.md).
 8. Returns a validated result to the renderer and persists a bounded per-project history summary.
 
-The scan result contains per-file metadata and hashes in renderer memory while the project page is open. The JSON history stores at most 50 summaries per project (counts, languages, technologies, warnings, status and timestamps); it does **not** persist file inventories, file hashes, or file contents. No project file contents are returned to the renderer or written to RepoLens persistence.
+The scan result contains per-file metadata and hashes in renderer memory while the project page is open; Electron main also keeps the latest full result in memory so static analysis can reuse it. The JSON history stores at most 50 summaries per project (counts, languages, technologies, warnings, status and timestamps); it does **not** persist file inventories, file hashes, file contents, or analysis results. No project file contents are returned to the renderer or written to RepoLens persistence.
 
 ## Ignore rules and precedence
 
@@ -55,7 +55,7 @@ Technology names are evidence-based, not proof that a dependency is installed or
 - `.gitignore` compatibility is an intentionally tested subset, not Git's complete ignore implementation.
 - The sensitive-file denylist is name/path based; it cannot detect secrets embedded inside otherwise ordinary source files.
 - Technology detection does not parse dependency graphs, ASTs, symbols, APIs/models, or framework semantics. It does not verify that declared packages are installed or imported.
-- Full file inventories/hashes are returned for the current scan but are not persisted in scan history. Incremental scanning, durable indexes, SQLite/Drizzle, exports, CLI scanning, and AI analysis remain later phases.
+- Full file inventories/hashes are returned for the current scan but are not persisted in scan history. Static AST extraction is a separate Phase 4 action described in [Static Analysis](STATIC_ANALYSIS.md). Incremental scanning, durable indexes, SQLite/Drizzle, exports, CLI scanning, dependency graphs, and AI analysis remain later phases.
 - There is no total file/directory-count ceiling or result pagination yet; runtime, memory use, and IPC result size can scale with the included repository. Very large repositories still need performance testing.
 - Automated tests use the checked-in synthetic fixture at `fixtures/scanner/basic/`; they do not scan developer-machine repositories. The Electron GUI/native picker could not be manually launched in the current sandbox because the native Electron binary/display are unavailable.
 

@@ -1,4 +1,6 @@
 import {
+  analysisProgressSchema,
+  analysisResultSchema,
   appErrorSchema,
   appSettingsSchema,
   projectImportCommitResultSchema,
@@ -7,6 +9,7 @@ import {
   scanHistoryItemSchema,
   scanProgressSchema,
   scanResultSchema,
+  type AnalysisProgress,
   type AppSettings,
   type RepoLensAPI,
   type Result,
@@ -145,6 +148,36 @@ export function createRepoLensAPI(invoker: IpcInvoker, eventSource?: IpcEventSou
         invokeResult(invoker, IPC_CHANNELS.scansGetLatest, scanHistoryItemNullableSchema, {
           projectId,
         }),
+    }),
+    analysis: Object.freeze({
+      start: (projectId: string, scanId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.analysisStart, analysisResultSchema, {
+          projectId,
+          scanId,
+        }),
+      cancel: (analysisId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.analysisCancel, cancelledOperationSchema, {
+          analysisId,
+        }),
+      onProgress: (callback: (progress: AnalysisProgress) => void) => {
+        if (typeof callback !== 'function') {
+          throw new TypeError('A static-analysis progress callback must be a function.');
+        }
+        if (eventSource === undefined) {
+          return () => undefined;
+        }
+        return eventSource.subscribe(IPC_EVENTS.analysisProgress, (value) => {
+          const progress = analysisProgressSchema.safeParse(value);
+          if (!progress.success) {
+            return;
+          }
+          try {
+            callback(progress.data);
+          } catch {
+            // Renderer event observers cannot interrupt the analysis worker.
+          }
+        });
+      },
     }),
     settings: Object.freeze({
       get: () => invokeResult(invoker, IPC_CHANNELS.settingsGet, appSettingsSchema),

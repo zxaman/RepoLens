@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { registerIpcHandlers } from './ipc/register-ipc.js';
+import { AnalysisManagementService } from './services/analysis-management.service.js';
 import { AppSettingsService } from './services/app-settings.service.js';
 import { JsonProjectRepository } from './services/json-project-repository.js';
 import { JsonSettingsRepository } from './services/json-settings-repository.js';
@@ -15,6 +17,7 @@ import {
 } from './security/sender-validation.js';
 import { createAppInfo } from './services/app-info.service.js';
 
+const electronDirectory = dirname(fileURLToPath(import.meta.url));
 let activeWindow: BrowserWindow | null = null;
 
 interface RendererTarget {
@@ -24,7 +27,7 @@ interface RendererTarget {
 }
 
 function createRendererTarget(): RendererTarget {
-  const filePath = join(__dirname, '../renderer/browser/index.html');
+  const filePath = join(electronDirectory, '../renderer/browser/index.html');
   const configuredUrl = app.isPackaged ? undefined : process.env['REPOLENS_RENDERER_URL'];
   const developmentUrl = configuredUrl ? new URL(configuredUrl) : null;
 
@@ -80,7 +83,7 @@ async function createMainWindow(target: RendererTarget): Promise<void> {
     minHeight: 640,
     show: false,
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      preload: join(electronDirectory, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -148,6 +151,7 @@ void app
       join(userDataDirectory, 'scan-history.json'),
     );
     const scanService = new ScanManagementService(projectService, scanHistoryRepository);
+    const analysisService = new AnalysisManagementService(projectService, scanService);
 
     installContentSecurityPolicy(rendererTarget.developmentUrl !== null);
     registerIpcHandlers(
@@ -163,6 +167,7 @@ void app
       projectService,
       settingsService,
       scanService,
+      analysisService,
     );
 
     await createMainWindow(rendererTarget);

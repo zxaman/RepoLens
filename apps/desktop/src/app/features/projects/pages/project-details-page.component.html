@@ -24,7 +24,7 @@
         <button
           type="button"
           class="button-danger-quiet"
-          [disabled]="removing() || scanning()"
+          [disabled]="removing() || scanning() || analyzing()"
           (click)="requestRemove()"
         >
           Remove
@@ -173,6 +173,7 @@
             [disabled]="
               current.status === 'unavailable' ||
               scanning() ||
+              analyzing() ||
               scanLoading() ||
               (includeSensitiveFiles() && !acknowledgeSensitiveFileRisk())
             "
@@ -372,6 +373,348 @@
                   </p>
                 }
               </details>
+            }
+
+            @if (scan.status !== 'failed') {
+              <section class="latest-scan analysis-panel" aria-labelledby="analysis-heading">
+                <div class="card-heading">
+                  <div>
+                    <p class="eyebrow">AST STATIC ANALYSIS</p>
+                    <h3 id="analysis-heading">TypeScript and JavaScript analysis</h3>
+                  </div>
+                  @if (currentAnalysis(); as analysis) {
+                    <span
+                      class="status-badge analysis-status"
+                      [class.analysis-status-partial]="analysis.status !== 'completed'"
+                    >
+                      {{ analysis.status }}
+                    </span>
+                  }
+                </div>
+                <p class="field-help">
+                  Analyze only TypeScript, TSX, JavaScript, and JSX source files already listed in
+                  this scan. RepoLens reads them locally with the TypeScript Compiler API; it does
+                  not execute code, install dependencies, or build a dependency graph.
+                </p>
+                <div class="scan-actions">
+                  <button
+                    type="button"
+                    class="button-primary"
+                    [disabled]="current.status === 'unavailable' || scanning() || analyzing()"
+                    (click)="startAnalysis()"
+                  >
+                    {{
+                      analyzing()
+                        ? 'Analyzing…'
+                        : currentAnalysis()
+                          ? 'Analyze again'
+                          : 'Analyze scanned source'
+                    }}
+                  </button>
+                  @if (analyzing() && analysisProjectId() === current.id) {
+                    <button
+                      type="button"
+                      class="button-secondary"
+                      [disabled]="activeAnalysisId() === null || cancellingAnalysis()"
+                      (click)="cancelAnalysis()"
+                    >
+                      {{ cancellingAnalysis() ? 'Cancelling…' : 'Cancel analysis' }}
+                    </button>
+                  }
+                </div>
+
+                @if (analysisError()) {
+                  <p class="scan-alert" role="alert">{{ analysisError() }}</p>
+                }
+                @if (analyzing() && analysisProjectId() === current.id) {
+                  <div class="progress-panel" role="status" aria-live="polite">
+                    <div class="progress-heading">
+                      <strong>
+                        {{
+                          analysisProgress()
+                            ? analysisPhaseLabel(analysisProgress()!.phase)
+                            : 'Preparing static analysis'
+                        }}
+                      </strong>
+                      <span>
+                        {{ analysisProgress()?.filesProcessed ?? 0 }} processed ·
+                        {{ analysisProgress()?.filesTotal ?? 0 }} selected
+                      </span>
+                    </div>
+                    <div
+                      class="progress-track"
+                      role="progressbar"
+                      aria-label="Static analysis progress"
+                      [attr.aria-valuenow]="
+                        analysisProgress() ? analysisProgressPercent(analysisProgress()!) : null
+                      "
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                    >
+                      @if (
+                        analysisProgress() && analysisProgressPercent(analysisProgress()!) !== null
+                      ) {
+                        <span [style.width.%]="analysisProgressPercent(analysisProgress()!)"></span>
+                      } @else {
+                        <span class="progress-indeterminate"></span>
+                      }
+                    </div>
+                    @if (analysisProgress()?.currentPath; as path) {
+                      <p class="current-path">{{ path }}</p>
+                    }
+                  </div>
+                }
+
+                @if (currentAnalysis(); as analysis) {
+                  <div class="scan-metrics">
+                    <div>
+                      <strong>{{ analysis.filesAnalyzed }}</strong><span
+                        >source files analyzed</span
+                      >
+                    </div>
+                    <div>
+                      <strong>{{ analysis.filesSkipped }}</strong><span>source files skipped</span>
+                    </div>
+                    <div>
+                      <strong>{{ analysis.symbols.length }}</strong><span>symbols</span>
+                    </div>
+                    <div>
+                      <strong>{{ analysis.imports.length }}</strong><span>imports</span>
+                    </div>
+                    <div>
+                      <strong>{{ analysis.exports.length }}</strong><span>exports</span>
+                    </div>
+                    <div>
+                      <strong>{{ analysis.dependencies.length }}</strong><span>dependencies</span>
+                    </div>
+                    <div>
+                      <strong>{{ analysis.diagnostics.length }}</strong><span>diagnostics</span>
+                    </div>
+                  </div>
+
+                  <details class="file-results analysis-browser">
+                    <summary>Symbols ({{ analysis.symbols.length }})</summary>
+                    <label class="analysis-search" for="analysis-symbol-search"
+                      >Search symbols</label
+                    >
+                    <input
+                      id="analysis-symbol-search"
+                      type="search"
+                      [value]="symbolSearch()"
+                      placeholder="Name, kind, or file path"
+                      (input)="symbolSearch.set($any($event.target).value)"
+                    />
+                    @if (visibleSymbols().items.length) {
+                      <div class="file-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Name</th>
+                              <th>Kind</th>
+                              <th>Location</th>
+                              <th>Parent symbol ID</th>
+                              <th>Exported</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (symbol of visibleSymbols().items; track symbol.id) {
+                              <tr>
+                                <td>
+                                  <code>{{ symbol.name }}</code>
+                                </td>
+                                <td>{{ symbol.kind }}</td>
+                                <td>
+                                  <code
+                                    >{{ symbol.location.filePath }}:{{
+                                      symbol.location.startLine
+                                    }}:{{ symbol.location.startColumn }}</code
+                                  >
+                                </td>
+                                <td>
+                                  <code>{{ symbol.parentId ?? '—' }}</code>
+                                </td>
+                                <td>{{ symbol.exported ? 'Yes' : 'No' }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                      @if (visibleSymbols().total > visibleSymbols().items.length) {
+                        <p class="field-help">
+                          Showing 200 of {{ visibleSymbols().total }} matching symbols.
+                        </p>
+                      }
+                    } @else {
+                      <p class="field-help">No symbols match this search.</p>
+                    }
+                  </details>
+
+                  <details class="file-results analysis-browser">
+                    <summary>Imports ({{ analysis.imports.length }})</summary>
+                    @if (analysis.imports.length) {
+                      <div class="file-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>File</th>
+                              <th>Specifier</th>
+                              <th>Kind</th>
+                              <th>Bindings</th>
+                              <th>Location</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (item of analysis.imports.slice(0, 200); track item.id) {
+                              <tr>
+                                <td>
+                                  <code>{{ item.filePath }}</code>
+                                </td>
+                                <td>
+                                  <code>{{ item.specifier }}</code>
+                                </td>
+                                <td>{{ item.kind }}{{ item.isTypeOnly ? ' · type-only' : '' }}</td>
+                                <td>
+                                  @for (binding of item.bindings; track binding.localName) {
+                                    <code
+                                      >{{ binding.importedName }} → {{ binding.localName
+                                      }}{{ binding.isTypeOnly ? ' (type)' : '' }}
+                                    </code>
+                                  } @empty {
+                                    —
+                                  }
+                                </td>
+                                <td>
+                                  {{ item.location.startLine }}:{{ item.location.startColumn }}
+                                </td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                      @if (analysis.imports.length > 200) {
+                        <p class="field-help">Showing the first 200 imports.</p>
+                      }
+                    } @else {
+                      <p class="field-help">No static import relationships were found.</p>
+                    }
+                  </details>
+
+                  <details class="file-results analysis-browser">
+                    <summary>Exports ({{ analysis.exports.length }})</summary>
+                    @if (analysis.exports.length) {
+                      <div class="file-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>File</th>
+                              <th>Export name</th>
+                              <th>Kind</th>
+                              <th>Local name / source</th>
+                              <th>Linked symbols</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (item of analysis.exports.slice(0, 200); track item.id) {
+                              <tr>
+                                <td>
+                                  <code>{{ item.filePath }}</code>
+                                </td>
+                                <td>
+                                  <code>{{ item.name }}</code>
+                                </td>
+                                <td>{{ item.kind }}{{ item.isTypeOnly ? ' · type-only' : '' }}</td>
+                                <td>
+                                  <code>{{ item.localName ?? item.source ?? '—' }}</code>
+                                </td>
+                                <td>{{ item.symbolIds.length }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                      @if (analysis.exports.length > 200) {
+                        <p class="field-help">Showing the first 200 exports.</p>
+                      }
+                    } @else {
+                      <p class="field-help">No export declarations were found.</p>
+                    }
+                  </details>
+
+                  <details class="file-results analysis-browser">
+                    <summary>Dependencies ({{ analysis.dependencies.length }})</summary>
+                    @if (analysis.dependencies.length) {
+                      <div class="file-table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>From file</th>
+                              <th>Specifier</th>
+                              <th>Classification</th>
+                              <th>Resolved path / package</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (
+                              dependency of analysis.dependencies.slice(0, 200);
+                              track dependency.id
+                            ) {
+                              <tr>
+                                <td>
+                                  <code>{{ dependency.fromPath }}</code>
+                                </td>
+                                <td>
+                                  <code>{{ dependency.specifier }}</code>
+                                </td>
+                                <td>{{ dependency.kind }}</td>
+                                <td>
+                                  <code>{{
+                                    dependency.resolvedPath ??
+                                      dependency.packageName ??
+                                      dependency.reason ??
+                                      '—'
+                                  }}</code>
+                                </td>
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                      </div>
+                      @if (analysis.dependencies.length > 200) {
+                        <p class="field-help">Showing the first 200 dependencies.</p>
+                      }
+                    } @else {
+                      <p class="field-help">
+                        No statically discoverable module relationships were found.
+                      </p>
+                    }
+                  </details>
+
+                  <details class="file-results analysis-browser">
+                    <summary>Diagnostics ({{ analysis.diagnostics.length }})</summary>
+                    @if (analysis.diagnostics.length) {
+                      <ul class="technology-list analysis-diagnostics">
+                        @for (diagnostic of analysis.diagnostics; track $index) {
+                          <li>
+                            <strong [class.diagnostic-error]="diagnostic.severity === 'error'"
+                              >{{ diagnostic.severity }} · {{ diagnostic.code }}</strong
+                            >
+                            <span>{{ diagnostic.message }}</span>
+                            @if (diagnostic.filePath) {
+                              <code
+                                >{{ diagnostic.filePath
+                                }}{{ diagnostic.line ? ':' + diagnostic.line : ''
+                                }}{{ diagnostic.column ? ':' + diagnostic.column : '' }}</code
+                              >
+                            }
+                          </li>
+                        }
+                      </ul>
+                    } @else {
+                      <p class="field-help">No analysis diagnostics were reported.</p>
+                    }
+                  </details>
+                }
+              </section>
             }
           </section>
         } @else if (latestScan(); as latest) {

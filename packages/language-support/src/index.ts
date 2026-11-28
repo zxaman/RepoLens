@@ -6,7 +6,7 @@ export interface LanguageDefinition {
   readonly extensions: readonly `.${string}`[];
 }
 
-/** Parser extension point only; no language parser is registered in the foundation milestone. */
+/** Generic parser extension point for additional language-specific frontends. */
 export interface LanguageParser<TSyntaxTree> {
   readonly language: LanguageDefinition;
   parse(filePath: string, sourceText: string): Promise<TSyntaxTree>;
@@ -16,3 +16,16 @@ export interface LanguageParser<TSyntaxTree> {
 export interface LanguageAnalyzer<TResult> extends Analyzer<TResult> {
   readonly language: LanguageDefinition;
 }
+
+export { TypeScriptParser } from './typescript-parser.js';
+export type {
+  ParsedDiagnostic,
+  ParsedExport,
+  ParsedImport,
+  ParsedPathMapping,
+  ParsedResolutionConfig,
+  ParsedResolutionConfigResult,
+  ParsedSourceFile,
+  ParsedSymbol,
+  StaticAnalysisParser,
+} from '@repolens/core';

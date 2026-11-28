@@ -1,11 +1,14 @@
 import { DatePipe } from '@angular/common';
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import type { OnInit } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import {
   DEFAULT_SCAN_CONFIG,
   scanConfigSchema,
+  type AnalysisPhase,
+  type AnalysisProgress,
+  type AnalysisResult,
   type Project,
   type ScanConfig,
   type ScanFile,
@@ -15,6 +18,7 @@ import {
   type ScanResult,
 } from '@repolens/shared';
 import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
+import { AnalysisService } from '../services/analysis.service';
 import { ProjectService, toUserMessage } from '../services/project.service';
 import { ScanService } from '../services/scan.service';
 import { SettingsService } from '../../settings/settings.service';
@@ -38,6 +42,26 @@ export class ProjectDetailsPageComponent implements OnInit {
   readonly latestScan = signal<ScanHistoryItem | null>(null);
   readonly currentScan = signal<ScanResult | null>(null);
   readonly scanProgress = signal<ScanProgress | null>(null);
+  readonly currentAnalysis = signal<AnalysisResult | null>(null);
+  readonly analysisProgress = signal<AnalysisProgress | null>(null);
+  readonly analyzing = signal(false);
+  readonly analysisProjectId = signal<string | null>(null);
+  readonly activeAnalysisId = signal<string | null>(null);
+  readonly cancellingAnalysis = signal(false);
+  readonly analysisError = signal('');
+  readonly symbolSearch = signal('');
+  readonly visibleSymbols = computed(() => {
+    const result = this.currentAnalysis();
+    const query = this.symbolSearch().trim().toLowerCase();
+    const matched = (result?.symbols ?? []).filter(
+      (symbol) =>
+        query.length === 0 ||
+        symbol.name.toLowerCase().includes(query) ||
+        symbol.kind.includes(query) ||
+        symbol.location.filePath.toLowerCase().includes(query),
+    );
+    return { items: matched.slice(0, 200), total: matched.length };
+  });
   readonly scanLoading = signal(false);
   readonly scanning = signal(false);
   readonly scanningProjectId = signal<string | null>(null);
@@ -55,9 +79,14 @@ export class ProjectDetailsPageComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly projectService = inject(ProjectService);
   private readonly scanService = inject(ScanService);
+  private readonly analysisService = inject(AnalysisService);
   private readonly settingsService = inject(SettingsService);
   private projectLoadRevision = 0;
   private unsubscribeFromProgress: (() => void) | null = null;
+  private unsubscribeFromAnalysisProgress: (() => void) | null = null;
+  private readonly abandonedAnalysisRequests = new Set<string>();
+  private analysisRunRevision = 0;
+  private destroyed = false;
 
   ngOnInit(): void {
     void this.settingsService
@@ -80,7 +109,39 @@ export class ProjectDetailsPageComponent implements OnInit {
     } catch {
       // The details page remains useful in a browser without the desktop preload bridge.
     }
-    this.destroyRef.onDestroy(() => this.unsubscribeFromProgress?.());
+    try {
+      this.unsubscribeFromAnalysisProgress = this.analysisService.onProgress((progress) => {
+        const requestKey = this.analysisRequestKey(progress.projectId, progress.scanId);
+        if (this.abandonedAnalysisRequests.delete(requestKey)) {
+          void this.analysisService.cancel(progress.analysisId).catch(() => undefined);
+          this.cleanupAnalysisProgressSubscription();
+          return;
+        }
+        if (
+          progress.projectId !== this.analysisProjectId() ||
+          progress.scanId !== this.currentScan()?.id
+        ) {
+          return;
+        }
+        this.activeAnalysisId.set(progress.analysisId);
+        this.analysisProgress.set(progress);
+      });
+    } catch {
+      // Static analysis is desktop-only; the rest of the project details page remains available.
+    }
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      this.unsubscribeFromProgress?.();
+      const analysisId = this.activeAnalysisId();
+      if (analysisId !== null) {
+        void this.analysisService.cancel(analysisId).catch(() => undefined);
+      } else if (this.analyzing()) {
+        this.rememberAbandonedAnalysisRequest();
+      }
+      this.analysisRunRevision += 1;
+      this.analyzing.set(false);
+      this.cleanupAnalysisProgressSubscription();
+    });
 
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       void this.loadProject(params.get('projectId'));
@@ -117,6 +178,7 @@ export class ProjectDetailsPageComponent implements OnInit {
       current === null ||
       current.status !== 'registered' ||
       this.scanning() ||
+      this.analyzing() ||
       (this.includeSensitiveFiles() && !this.acknowledgeSensitiveFileRisk())
     ) {
       return;
@@ -127,6 +189,9 @@ export class ProjectDetailsPageComponent implements OnInit {
     this.scanProgress.set(null);
     this.activeScanId.set(null);
     this.currentScan.set(null);
+    this.currentAnalysis.set(null);
+    this.analysisProgress.set(null);
+    this.analysisError.set('');
     this.scanning.set(true);
     this.scanningProjectId.set(current.id);
     try {
@@ -176,6 +241,101 @@ export class ProjectDetailsPageComponent implements OnInit {
       this.actionError.set(toUserMessage(error, 'RepoLens could not cancel the scan.'));
       this.cancellingScan.set(false);
     }
+  }
+
+  async startAnalysis(): Promise<void> {
+    const current = this.project();
+    const scan = this.currentScan();
+    if (
+      current === null ||
+      scan === null ||
+      current.status !== 'registered' ||
+      scan.status === 'failed' ||
+      this.scanning() ||
+      this.analyzing()
+    ) {
+      return;
+    }
+
+    const revision = ++this.analysisRunRevision;
+    this.analysisError.set('');
+    this.currentAnalysis.set(null);
+    this.analysisProgress.set(null);
+    this.activeAnalysisId.set(null);
+    this.analysisProjectId.set(current.id);
+    this.analyzing.set(true);
+    try {
+      const result = await this.analysisService.start(current.id, scan.id);
+      if (
+        revision !== this.analysisRunRevision ||
+        this.project()?.id !== current.id ||
+        this.currentScan()?.id !== scan.id
+      ) {
+        if (this.abandonedAnalysisRequests.delete(this.analysisRequestKey(current.id, scan.id))) {
+          void this.analysisService.cancel(result.analysisId).catch(() => undefined);
+        }
+        this.cleanupAnalysisProgressSubscription();
+        return;
+      }
+      this.currentAnalysis.set(result);
+      if (result.status === 'failed') {
+        this.analysisError.set(
+          result.diagnostics[0]?.message ?? 'RepoLens could not analyze this scan result.',
+        );
+      }
+    } catch (error) {
+      if (revision === this.analysisRunRevision && this.project()?.id === current.id) {
+        this.analysisError.set(
+          toUserMessage(error, 'RepoLens could not complete static analysis.'),
+        );
+      } else if (
+        this.abandonedAnalysisRequests.delete(this.analysisRequestKey(current.id, scan.id))
+      ) {
+        this.cleanupAnalysisProgressSubscription();
+      }
+    } finally {
+      if (revision === this.analysisRunRevision) {
+        this.analyzing.set(false);
+        this.cancellingAnalysis.set(false);
+        this.analysisProjectId.set(null);
+        this.activeAnalysisId.set(null);
+      }
+    }
+  }
+
+  async cancelAnalysis(): Promise<void> {
+    const analysisId = this.activeAnalysisId();
+    if (analysisId === null || !this.analyzing() || this.cancellingAnalysis()) {
+      return;
+    }
+    this.cancellingAnalysis.set(true);
+    this.analysisError.set('');
+    try {
+      await this.analysisService.cancel(analysisId);
+    } catch (error) {
+      this.analysisError.set(toUserMessage(error, 'RepoLens could not cancel static analysis.'));
+      this.cancellingAnalysis.set(false);
+    }
+  }
+
+  analysisPhaseLabel(phase: AnalysisPhase): string {
+    const labels: Record<AnalysisPhase, string> = {
+      initializing: 'Preparing static analysis',
+      reading: 'Reading scanned source files',
+      parsing: 'Parsing TypeScript and JavaScript syntax',
+      resolving: 'Classifying module relationships',
+      finalizing: 'Finalizing analysis results',
+    };
+    return labels[phase];
+  }
+
+  analysisProgressPercent(progress: AnalysisProgress): number | null {
+    if (progress.percentage !== undefined) {
+      return progress.percentage;
+    }
+    return progress.filesTotal === 0
+      ? null
+      : Math.round((progress.filesProcessed / progress.filesTotal) * 100);
   }
 
   requestRemove(): void {
@@ -278,8 +438,43 @@ export class ProjectDetailsPageComponent implements OnInit {
     }
   }
 
+  private stopAnalysisForProjectChange(): void {
+    this.analysisRunRevision += 1;
+    const analysisId = this.activeAnalysisId();
+    if (analysisId !== null) {
+      void this.analysisService.cancel(analysisId).catch(() => undefined);
+    } else if (this.analyzing()) {
+      this.rememberAbandonedAnalysisRequest();
+    }
+    this.analyzing.set(false);
+    this.cancellingAnalysis.set(false);
+    this.analysisProjectId.set(null);
+    this.activeAnalysisId.set(null);
+    this.analysisProgress.set(null);
+  }
+
+  private rememberAbandonedAnalysisRequest(): void {
+    const projectId = this.analysisProjectId();
+    const scanId = this.currentScan()?.id;
+    if (projectId !== null && scanId !== undefined) {
+      this.abandonedAnalysisRequests.add(this.analysisRequestKey(projectId, scanId));
+    }
+  }
+
+  private analysisRequestKey(projectId: string, scanId: string): string {
+    return `${projectId}:${scanId}`;
+  }
+
+  private cleanupAnalysisProgressSubscription(): void {
+    if (this.destroyed && this.abandonedAnalysisRequests.size === 0) {
+      this.unsubscribeFromAnalysisProgress?.();
+      this.unsubscribeFromAnalysisProgress = null;
+    }
+  }
+
   private async loadProject(projectId: string | null): Promise<void> {
     const revision = ++this.projectLoadRevision;
+    this.stopAnalysisForProjectChange();
     this.loading.set(true);
     this.error.set('');
     this.actionError.set('');
@@ -290,6 +485,10 @@ export class ProjectDetailsPageComponent implements OnInit {
     this.scanLoading.set(false);
     this.currentScan.set(null);
     this.scanProgress.set(null);
+    this.currentAnalysis.set(null);
+    this.analysisProgress.set(null);
+    this.analysisError.set('');
+    this.symbolSearch.set('');
     if (projectId === null) {
       this.error.set('This project link is invalid.');
       this.loading.set(false);
