@@ -3,17 +3,20 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(fileURLToPath(new URL('../', import.meta.url)));
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const rendererUrl = 'http://127.0.0.1:4200/';
 const rendererStartupTimeoutMilliseconds = 5 * 60_000;
 const children = new Set();
 
 function spawnNpm(args, env = process.env) {
-  const child = spawn(npmCommand, args, {
+  const npmCliPath = env.npm_execpath;
+  if (npmCliPath === undefined || npmCliPath.length === 0) {
+    throw new Error('Could not locate npm; run this command through `npm run dev:desktop`.');
+  }
+
+  const child = spawn(process.execPath, [npmCliPath, ...args], {
     cwd: repositoryRoot,
     env,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
   });
   children.add(child);
   child.once('exit', () => children.delete(child));
