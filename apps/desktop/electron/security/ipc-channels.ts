@@ -2,6 +2,7 @@ import type {
   AppSettings,
   GraphCycleQuery,
   GraphDependencyQuery,
+  GraphGenerationRequest,
   GraphNodeQuery,
   GraphPathQuery,
   ScanConfig,
@@ -25,6 +26,7 @@ export const IPC_CHANNELS = {
   scansGetLatest: 'scans:get-latest',
   analysisStart: 'analysis:start',
   analysisCancel: 'analysis:cancel',
+  graphsGenerate: 'graphs:generate',
   graphsSummary: 'graphs:summary',
   graphsQuery: 'graphs:query',
   graphsDependencies: 'graphs:dependencies',
@@ -75,6 +77,7 @@ export interface IpcPayloadByChannel {
   [IPC_CHANNELS.scansGetLatest]: { readonly projectId: string };
   [IPC_CHANNELS.analysisStart]: { readonly projectId: string; readonly scanId: string };
   [IPC_CHANNELS.analysisCancel]: { readonly analysisId: string };
+  [IPC_CHANNELS.graphsGenerate]: GraphGenerationRequest;
   [IPC_CHANNELS.graphsSummary]: { readonly projectId: string };
   [IPC_CHANNELS.graphsQuery]: { readonly projectId: string; readonly query: GraphNodeQuery };
   [IPC_CHANNELS.graphsDependencies]: {

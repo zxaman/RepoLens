@@ -2,6 +2,7 @@ import type {
   AnalysisResult,
   AppSettings,
   GraphCycleReport,
+  GraphGenerationReport,
   GraphNodeQueryResult,
   GraphPathResult,
   GraphSummary,
@@ -83,6 +84,7 @@ function createTestBridge(
     },
     graphs: {
       onProgress: () => () => undefined,
+      generate: () => notImplemented<GraphGenerationReport>(),
       summary: () => notImplemented<GraphSummary | null>(),
       query: () => notImplemented<GraphNodeQueryResult | null>(),
       dependencies: () => notImplemented<GraphTraversalResult | null>(),

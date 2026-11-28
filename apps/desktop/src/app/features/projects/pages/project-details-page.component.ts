@@ -9,6 +9,11 @@ import {
   type AnalysisPhase,
   type AnalysisProgress,
   type AnalysisResult,
+  type GraphBuildProgress,
+  type GraphCycleReport,
+  type GraphGenerationReport,
+  type GraphNode,
+  type GraphSummary,
   type Project,
   type ScanConfig,
   type ScanFile,
@@ -19,6 +24,7 @@ import {
 } from '@repolens/shared';
 import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
 import { AnalysisService } from '../services/analysis.service';
+import { GraphService } from '../services/graph.service';
 import { ProjectService, toUserMessage } from '../services/project.service';
 import { ScanService } from '../services/scan.service';
 import { SettingsService } from '../../settings/settings.service';
@@ -49,6 +55,13 @@ export class ProjectDetailsPageComponent implements OnInit {
   readonly activeAnalysisId = signal<string | null>(null);
   readonly cancellingAnalysis = signal(false);
   readonly analysisError = signal('');
+  readonly graphReport = signal<GraphGenerationReport | null>(null);
+  readonly graphSummary = signal<GraphSummary | null>(null);
+  readonly graphNodes = signal<readonly GraphNode[]>([]);
+  readonly graphCycles = signal<GraphCycleReport | null>(null);
+  readonly graphProgress = signal<GraphBuildProgress | null>(null);
+  readonly graphError = signal('');
+  readonly generatingGraph = signal(false);
   readonly symbolSearch = signal('');
   readonly visibleSymbols = computed(() => {
     const result = this.currentAnalysis();
@@ -80,12 +93,15 @@ export class ProjectDetailsPageComponent implements OnInit {
   private readonly projectService = inject(ProjectService);
   private readonly scanService = inject(ScanService);
   private readonly analysisService = inject(AnalysisService);
+  private readonly graphService = inject(GraphService);
   private readonly settingsService = inject(SettingsService);
   private projectLoadRevision = 0;
   private unsubscribeFromProgress: (() => void) | null = null;
   private unsubscribeFromAnalysisProgress: (() => void) | null = null;
+  private unsubscribeFromGraphProgress: (() => void) | null = null;
   private readonly abandonedAnalysisRequests = new Set<string>();
   private analysisRunRevision = 0;
+  private graphRunRevision = 0;
   private destroyed = false;
 
   ngOnInit(): void {
@@ -129,9 +145,24 @@ export class ProjectDetailsPageComponent implements OnInit {
     } catch {
       // Static analysis is desktop-only; the rest of the project details page remains available.
     }
+    try {
+      this.unsubscribeFromGraphProgress = this.graphService.onProgress((progress) => {
+        if (
+          progress.projectId !== this.project()?.id ||
+          progress.scanId !== this.currentScan()?.id ||
+          progress.analysisId !== this.currentAnalysis()?.analysisId
+        ) {
+          return;
+        }
+        this.graphProgress.set(progress);
+      });
+    } catch {
+      // Graph generation is desktop-only; analysis results remain available without the bridge.
+    }
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
       this.unsubscribeFromProgress?.();
+      this.unsubscribeFromGraphProgress?.();
       const analysisId = this.activeAnalysisId();
       if (analysisId !== null) {
         void this.analysisService.cancel(analysisId).catch(() => undefined);
@@ -139,7 +170,9 @@ export class ProjectDetailsPageComponent implements OnInit {
         this.rememberAbandonedAnalysisRequest();
       }
       this.analysisRunRevision += 1;
+      this.graphRunRevision += 1;
       this.analyzing.set(false);
+      this.generatingGraph.set(false);
       this.cleanupAnalysisProgressSubscription();
     });
 
@@ -179,6 +212,7 @@ export class ProjectDetailsPageComponent implements OnInit {
       current.status !== 'registered' ||
       this.scanning() ||
       this.analyzing() ||
+      this.generatingGraph() ||
       (this.includeSensitiveFiles() && !this.acknowledgeSensitiveFileRisk())
     ) {
       return;
@@ -192,6 +226,7 @@ export class ProjectDetailsPageComponent implements OnInit {
     this.currentAnalysis.set(null);
     this.analysisProgress.set(null);
     this.analysisError.set('');
+    this.clearGraphState();
     this.scanning.set(true);
     this.scanningProjectId.set(current.id);
     try {
@@ -252,7 +287,8 @@ export class ProjectDetailsPageComponent implements OnInit {
       current.status !== 'registered' ||
       scan.status === 'failed' ||
       this.scanning() ||
-      this.analyzing()
+      this.analyzing() ||
+      this.generatingGraph()
     ) {
       return;
     }
@@ -261,6 +297,7 @@ export class ProjectDetailsPageComponent implements OnInit {
     this.analysisError.set('');
     this.currentAnalysis.set(null);
     this.analysisProgress.set(null);
+    this.clearGraphState();
     this.activeAnalysisId.set(null);
     this.analysisProjectId.set(current.id);
     this.analyzing.set(true);
@@ -316,6 +353,97 @@ export class ProjectDetailsPageComponent implements OnInit {
       this.analysisError.set(toUserMessage(error, 'RepoLens could not cancel static analysis.'));
       this.cancellingAnalysis.set(false);
     }
+  }
+
+  async generateGraph(): Promise<void> {
+    const current = this.project();
+    const scan = this.currentScan();
+    const analysis = this.currentAnalysis();
+    if (
+      current === null ||
+      scan === null ||
+      analysis === null ||
+      current.status !== 'registered' ||
+      scan.status !== 'completed' ||
+      (analysis.status !== 'completed' && analysis.status !== 'partial') ||
+      analysis.filesAnalyzed === 0 ||
+      this.scanning() ||
+      this.analyzing() ||
+      this.generatingGraph()
+    ) {
+      return;
+    }
+
+    const revision = ++this.graphRunRevision;
+    this.graphError.set('');
+    this.graphReport.set(null);
+    this.graphSummary.set(null);
+    this.graphNodes.set([]);
+    this.graphCycles.set(null);
+    this.graphProgress.set(null);
+    this.generatingGraph.set(true);
+    try {
+      const report = await this.graphService.generate(current.id, scan.id, analysis.analysisId);
+      if (
+        revision !== this.graphRunRevision ||
+        this.destroyed ||
+        this.project()?.id !== current.id ||
+        this.currentScan()?.id !== scan.id ||
+        this.currentAnalysis()?.analysisId !== analysis.analysisId
+      ) {
+        return;
+      }
+      this.graphReport.set(report);
+      if (report.status === 'failed') {
+        return;
+      }
+
+      const [summary, nodes, cycles] = await Promise.all([
+        this.graphService.summary(current.id),
+        this.graphService.query(current.id, { limit: 100 }),
+        this.graphService.cycles(current.id),
+      ]);
+      if (
+        revision !== this.graphRunRevision ||
+        this.destroyed ||
+        this.project()?.id !== current.id ||
+        this.currentScan()?.id !== scan.id ||
+        this.currentAnalysis()?.analysisId !== analysis.analysisId
+      ) {
+        return;
+      }
+      if (
+        summary === null ||
+        nodes === null ||
+        cycles === null ||
+        summary.scanId !== scan.id ||
+        summary.analysisId !== analysis.analysisId
+      ) {
+        throw new Error('RepoLens generated the graph but could not retrieve its validated data.');
+      }
+      this.graphSummary.set(summary);
+      this.graphNodes.set(nodes.nodes);
+      this.graphCycles.set(cycles);
+    } catch (error) {
+      if (revision === this.graphRunRevision && !this.destroyed) {
+        this.graphError.set(toUserMessage(error, 'RepoLens could not generate this graph.'));
+      }
+    } finally {
+      if (revision === this.graphRunRevision) {
+        this.generatingGraph.set(false);
+      }
+    }
+  }
+
+  graphPhaseLabel(phase: GraphBuildProgress['phase']): string {
+    const labels: Record<GraphBuildProgress['phase'], string> = {
+      preparing: 'Validating analysis and preparing graph data',
+      nodes: 'Building graph nodes',
+      edges: 'Building graph relationships',
+      metrics: 'Calculating graph metrics and cycles',
+      cancelled: 'Graph generation cancelled',
+    };
+    return labels[phase];
   }
 
   analysisPhaseLabel(phase: AnalysisPhase): string {
@@ -432,7 +560,7 @@ export class ProjectDetailsPageComponent implements OnInit {
 
   private async removeCurrentProject(): Promise<void> {
     const current = this.project();
-    if (current === null) {
+    if (current === null || this.generatingGraph()) {
       return;
     }
     this.removing.set(true);
@@ -447,6 +575,21 @@ export class ProjectDetailsPageComponent implements OnInit {
     } finally {
       this.removing.set(false);
     }
+  }
+
+  private clearGraphState(): void {
+    this.graphRunRevision += 1;
+    this.generatingGraph.set(false);
+    this.graphReport.set(null);
+    this.graphSummary.set(null);
+    this.graphNodes.set([]);
+    this.graphCycles.set(null);
+    this.graphProgress.set(null);
+    this.graphError.set('');
+  }
+
+  private stopGraphForProjectChange(): void {
+    this.clearGraphState();
   }
 
   private stopAnalysisForProjectChange(): void {
@@ -486,6 +629,7 @@ export class ProjectDetailsPageComponent implements OnInit {
   private async loadProject(projectId: string | null): Promise<void> {
     const revision = ++this.projectLoadRevision;
     this.stopAnalysisForProjectChange();
+    this.stopGraphForProjectChange();
     this.loading.set(true);
     this.error.set('');
     this.actionError.set('');

@@ -4,6 +4,7 @@ import {
   appErrorSchema,
   graphBuildProgressSchema,
   graphCycleReportSchema,
+  graphGenerationReportSchema,
   graphDisposeResultSchema,
   graphExportJsonSchema,
   graphNodeQueryResultSchema,
@@ -53,6 +54,7 @@ const projectRemovalSchema = z.object({ removed: z.literal(true) }).strict();
 const cancelledOperationSchema = z.object({ cancelled: z.literal(true) }).strict();
 const scanHistoryItemListSchema = z.array(scanHistoryItemSchema).readonly();
 const scanHistoryItemNullableSchema = scanHistoryItemSchema.nullable();
+const graphGenerationReportResultSchema = graphGenerationReportSchema;
 const graphSummaryNullableSchema = graphSummarySchema.nullable();
 const graphNodeQueryResultNullableSchema = graphNodeQueryResultSchema.nullable();
 const graphTraversalResultNullableSchema = graphTraversalResultSchema.nullable();
@@ -218,6 +220,12 @@ export function createRepoLensAPI(invoker: IpcInvoker, eventSource?: IpcEventSou
           }
         });
       },
+      generate: (projectId: string, scanId: string, analysisId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.graphsGenerate, graphGenerationReportResultSchema, {
+          projectId,
+          scanId,
+          analysisId,
+        }),
       summary: (projectId: string) =>
         invokeResult(invoker, IPC_CHANNELS.graphsSummary, graphSummaryNullableSchema, {
           projectId,

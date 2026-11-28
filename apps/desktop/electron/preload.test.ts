@@ -85,6 +85,7 @@ describe('secure preload bridge', () => {
       'dependencies',
       'dispose',
       'exportJson',
+      'generate',
       'onProgress',
       'query',
       'shortestPath',

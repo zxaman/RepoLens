@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   graphBuildProgressSchema,
   graphExportSchema,
+  graphGenerationReportSchema,
   graphNodeSchema,
   type GraphExport,
 } from './graph.schema.js';
@@ -149,6 +150,34 @@ describe('graph shared schemas', () => {
       }).success,
     ).toBe(true);
     expect(graphBuildProgressSchema.safeParse({ ...progress, percentage: 99 }).success).toBe(false);
+  });
+
+  it('validates graph-generation failures and consistent node/edge count summaries', () => {
+    const failure = {
+      projectId,
+      analysisId: null,
+      analysisStatus: null,
+      status: 'failed',
+      totalNodes: 0,
+      totalEdges: 0,
+      nodesByType: {},
+      edgesByType: {},
+      resolvedDependencies: 0,
+      unresolvedDependencies: 0,
+      externalDependencies: 0,
+      cycleCount: 0,
+      cyclesTruncated: false,
+      warnings: [],
+      failureCode: 'ANALYSIS_REQUIRED',
+      errorMessage: 'Run static analysis first.',
+    };
+    expect(graphGenerationReportSchema.parse(failure)).toEqual(failure);
+    expect(
+      graphGenerationReportSchema.safeParse({ ...failure, nodesByType: { file: 1 } }).success,
+    ).toBe(false);
+    expect(
+      graphGenerationReportSchema.safeParse({ ...failure, nodesByType: { unknown: 0 } }).success,
+    ).toBe(false);
   });
 
   it('rejects path-derived and symbol-derived node identity mismatches', () => {

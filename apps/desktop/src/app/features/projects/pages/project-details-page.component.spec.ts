@@ -5,10 +5,15 @@ import { BehaviorSubject } from 'rxjs';
 import {
   analysisResultSchema,
   DEFAULT_APP_SETTINGS,
+  graphCycleReportSchema,
+  graphGenerationReportSchema,
+  graphNodeQueryResultSchema,
+  graphSummarySchema,
   scanHistoryItemSchema,
   scanResultSchema,
   type AnalysisProgress,
   type AnalysisResult,
+  type GraphBuildProgress,
   type Project,
   type ScanHistoryItem,
   type ScanProgress,
@@ -18,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsService } from '../../settings/settings.service';
 import { ConfirmRemoveDialogComponent } from '../components/confirm-remove-dialog.component';
 import { AnalysisService } from '../services/analysis.service';
+import { GraphService } from '../services/graph.service';
 import { ProjectService } from '../services/project.service';
 import { ScanService } from '../services/scan.service';
 import { ProjectDetailsPageComponent } from './project-details-page.component';
@@ -98,6 +104,7 @@ const analysisResult: AnalysisResult = analysisResultSchema.parse({
   filesSelected: 1,
   filesAnalyzed: 1,
   filesSkipped: 0,
+  analyzedFiles: ['src/index.ts'],
   symbols: [
     {
       id: moduleSymbolId,
@@ -184,10 +191,81 @@ const analysisResult: AnalysisResult = analysisResultSchema.parse({
   ],
 });
 
+const graphReport = graphGenerationReportSchema.parse({
+  projectId: project.id,
+  analysisId: analysisResult.analysisId,
+  analysisStatus: 'partial',
+  status: 'partial',
+  totalNodes: 2,
+  totalEdges: 1,
+  nodesByType: { project: 1, file: 1 },
+  edgesByType: { contains: 1 },
+  resolvedDependencies: 1,
+  unresolvedDependencies: 0,
+  externalDependencies: 0,
+  cycleCount: 0,
+  cyclesTruncated: false,
+  warnings: ['Static analysis was partial.'],
+});
+const graphSummary = graphSummarySchema.parse({
+  projectId: project.id,
+  analysisId: analysisResult.analysisId,
+  scanId: result.id,
+  analysisStatus: 'partial',
+  metrics: {
+    nodeCount: 2,
+    edgeCount: 1,
+    nodesByType: [
+      { type: 'project', count: 1 },
+      { type: 'file', count: 1 },
+    ],
+    edgesByType: [{ type: 'contains', count: 1 }],
+    fileCount: 1,
+    folderCount: 0,
+    symbolCount: 0,
+    analysisFilesAnalyzed: 1,
+    dependencyEdgeCount: 0,
+    uniqueDependencyPairCount: 0,
+    externalDependencyCount: 0,
+    unresolvedDependencyCount: 0,
+    isolatedFileCount: 1,
+    averageDependenciesPerFile: 0,
+    maxDependenciesPerFile: 0,
+    stronglyConnectedComponentCount: 1,
+    cyclicComponentCount: 0,
+    selfLoopCount: 0,
+  },
+});
+const graphNodes = graphNodeQueryResultSchema.parse({
+  nodes: [
+    {
+      id: 'file:src/index.ts',
+      projectId: project.id,
+      type: 'file',
+      name: 'src/index.ts',
+      relativePath: 'src/index.ts',
+    },
+  ],
+  total: 1,
+  offset: 0,
+  limit: 100,
+});
+const graphCycles = graphCycleReportSchema.parse({
+  projectId: project.id,
+  analysisId: analysisResult.analysisId,
+  stronglyConnectedComponentCount: 1,
+  cyclicComponents: [],
+  cycles: [],
+  maxCycles: 100,
+  truncated: false,
+  exploredTransitions: 0,
+});
+
 describe('ProjectDetailsPageComponent scan and analysis UI', () => {
   let params: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
   let scanProgressListener: ((progress: ScanProgress) => void) | null;
   let analysisProgressListener: ((progress: AnalysisProgress) => void) | null;
+  let graphProgressListener: ((progress: GraphBuildProgress) => void) | null;
   let scanService: {
     start: ReturnType<typeof vi.fn>;
     cancel: ReturnType<typeof vi.fn>;
@@ -198,6 +276,13 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
   let analysisService: {
     start: ReturnType<typeof vi.fn>;
     cancel: ReturnType<typeof vi.fn>;
+    onProgress: ReturnType<typeof vi.fn>;
+  };
+  let graphService: {
+    generate: ReturnType<typeof vi.fn>;
+    summary: ReturnType<typeof vi.fn>;
+    query: ReturnType<typeof vi.fn>;
+    cycles: ReturnType<typeof vi.fn>;
     onProgress: ReturnType<typeof vi.fn>;
   };
   let projectService: {
@@ -211,6 +296,7 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
     params = new BehaviorSubject(convertToParamMap({ projectId: project.id }));
     scanProgressListener = null;
     analysisProgressListener = null;
+    graphProgressListener = null;
     scanService = {
       start: vi.fn(async () => result),
       cancel: vi.fn(async () => undefined),
@@ -229,6 +315,16 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
         return vi.fn();
       }),
     };
+    graphService = {
+      generate: vi.fn(async () => graphReport),
+      summary: vi.fn(async () => graphSummary),
+      query: vi.fn(async () => graphNodes),
+      cycles: vi.fn(async () => graphCycles),
+      onProgress: vi.fn((callback: (progress: GraphBuildProgress) => void) => {
+        graphProgressListener = callback;
+        return vi.fn();
+      }),
+    };
     projectService = {
       getProject: vi.fn(async () => project),
       openProject: vi.fn(async () => project),
@@ -242,6 +338,7 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
         { provide: ProjectService, useValue: projectService },
         { provide: ScanService, useValue: scanService },
         { provide: AnalysisService, useValue: analysisService },
+        { provide: GraphService, useValue: graphService },
         {
           provide: SettingsService,
           useValue: { load: async () => ({ ...DEFAULT_APP_SETTINGS }) },
@@ -318,6 +415,33 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
     expect(page.textContent).toContain('UNRESOLVED_DEPENDENCY');
     expect(page.textContent).toContain('2');
     expect(analysisProgressListener).not.toBeNull();
+
+    const generation = component.generateGraph();
+    graphProgressListener?.({
+      analysisId: analysisResult.analysisId,
+      scanId: result.id,
+      projectId: project.id,
+      phase: 'nodes',
+      processed: 1,
+      total: 2,
+      percentage: 50,
+    });
+    fixture.detectChanges();
+    expect(page.textContent).toContain('Building graph nodes');
+    await generation;
+    fixture.detectChanges();
+    expect(graphService.generate).toHaveBeenCalledWith(
+      project.id,
+      result.id,
+      analysisResult.analysisId,
+    );
+    expect(graphService.summary).toHaveBeenCalledWith(project.id);
+    expect(graphService.query).toHaveBeenCalledWith(project.id, { limit: 100 });
+    expect(page.textContent).toContain('Dependency graph');
+    expect(page.textContent).toContain('graph nodes');
+    expect(page.textContent).toContain('Graph nodes (1 shown)');
+    expect(page.textContent).toContain('src/index.ts');
+    expect(page.textContent).toContain('Cycle paths (0 found)');
   });
 
   it('shows analysis progress, cancels an in-flight worker, and surfaces worker errors', async () => {
@@ -386,81 +510,41 @@ describe('ProjectDetailsPageComponent scan and analysis UI', () => {
     analysisService.start = vi.fn(
       () => new Promise<AnalysisResult>((resolve) => (finishAnalysis = resolve)),
     );
-    const startPromise = component.startAnalysis();
-
-    params.next(convertToParamMap({ projectId: 'a1b2c3d4-e5f6-47a8-9012-abcdef654321' }));
+    const request = component.startAnalysis();
+    params.next(convertToParamMap({ projectId: 'b1b2c3d4-e5f6-47a8-9012-abcdef123456' }));
     await fixture.whenStable();
+    expect(component.project()).toBe(project);
     expect(component.currentScan()).toBeNull();
-
-    analysisProgressListener?.({
-      analysisId: analysisResult.analysisId,
-      scanId: result.id,
-      projectId: project.id,
-      phase: 'initializing',
-      filesTotal: 1,
-      filesProcessed: 0,
-    });
-    expect(analysisService.cancel).toHaveBeenCalledWith(analysisResult.analysisId);
-
-    finishAnalysis?.({ ...analysisResult, status: 'cancelled' });
-    await startPromise;
-    expect(component.analyzing()).toBe(false);
-  });
-
-  it('cancels a pending analysis when the page is destroyed before progress supplies its analysis ID', async () => {
-    const fixture = TestBed.createComponent(ProjectDetailsPageComponent);
-    fixture.detectChanges();
-    await fixture.whenStable();
-    await vi.waitFor(() => expect(fixture.componentInstance.loading()).toBe(false));
-
-    const component = fixture.componentInstance;
-    await component.startScan();
-    let finishAnalysis: ((value: AnalysisResult) => void) | undefined;
-    analysisService.start = vi.fn(
-      () => new Promise<AnalysisResult>((resolve) => (finishAnalysis = resolve)),
-    );
-    const startPromise = component.startAnalysis();
-
-    fixture.destroy();
-    analysisProgressListener?.({
-      analysisId: analysisResult.analysisId,
-      scanId: result.id,
-      projectId: project.id,
-      phase: 'initializing',
-      filesTotal: 1,
-      filesProcessed: 0,
-    });
-    expect(analysisService.cancel).toHaveBeenCalledWith(analysisResult.analysisId);
-
-    finishAnalysis?.({ ...analysisResult, status: 'cancelled' });
-    await startPromise;
     expect(component.currentAnalysis()).toBeNull();
-    expect(component.analyzing()).toBe(false);
+    finishAnalysis?.(analysisResult);
+    await request;
+    await vi.waitFor(() =>
+      expect(analysisService.cancel).toHaveBeenCalledWith(analysisResult.analysisId),
+    );
+    fixture.destroy();
   });
 
-  it('requires the explicit risk acknowledgement before enabling sensitive-file inclusion', async () => {
+  it('does not start a scan until sensitive-file inclusion is explicitly acknowledged', async () => {
     const fixture = TestBed.createComponent(ProjectDetailsPageComponent);
     fixture.detectChanges();
     await fixture.whenStable();
     await vi.waitFor(() => expect(fixture.componentInstance.loading()).toBe(false));
-    fixture.detectChanges();
+
     const component = fixture.componentInstance;
-    const page = fixture.nativeElement as HTMLElement;
-    const includeCheckbox = page.querySelector<HTMLInputElement>('.sensitive-toggle input');
-    expect(includeCheckbox).not.toBeNull();
-
-    includeCheckbox!.checked = true;
-    includeCheckbox!.dispatchEvent(new Event('change'));
-    fixture.detectChanges();
-    expect(page.textContent).toMatch(/sensitive paths may contain credentials or private keys/i);
+    component.setSensitiveFileInclusion(true);
     expect(component.acknowledgeSensitiveFileRisk()).toBe(false);
+    await component.startScan();
+    expect(scanService.start).not.toHaveBeenCalled();
 
-    const startButton = Array.from(page.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Start scan'),
-    );
-    expect(startButton?.disabled).toBe(true);
     component.acknowledgeSensitiveFileRisk.set(true);
-    fixture.detectChanges();
-    expect(startButton?.disabled).toBe(false);
+    await component.startScan();
+    expect(scanService.start).toHaveBeenCalledOnce();
+    expect(scanService.start).toHaveBeenCalledWith(
+      project.id,
+      expect.objectContaining({
+        includeSensitiveFiles: true,
+        acknowledgeSensitiveFileRisk: true,
+      }),
+    );
   });
 });

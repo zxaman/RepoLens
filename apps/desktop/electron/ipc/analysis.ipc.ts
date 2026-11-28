@@ -1,7 +1,6 @@
 import {
   analysisProgressSchema,
   analysisResultSchema,
-  graphBuildProgressSchema,
   failureResult,
   successResult,
   type AnalysisResult,
@@ -32,11 +31,8 @@ export function registerAnalysisIpc(
     (payload, event) =>
       safely('static analysis', async () =>
         analysisResultSchema.parse(
-          await analyses.start(
-            payload.projectId,
-            payload.scanId,
-            (progress) => sendProgressToSender(event, progress),
-            (progress) => sendGraphProgressToSender(event, progress),
+          await analyses.start(payload.projectId, payload.scanId, (progress) =>
+            sendProgressToSender(event, progress),
           ),
         ),
       ),
@@ -61,18 +57,6 @@ function sendProgressToSender(event: IpcMainInvokeEvent, value: unknown): void {
     event.sender.send(IPC_EVENTS.analysisProgress, progress.data);
   } catch {
     // Closing the renderer must not interrupt analysis or worker cleanup.
-  }
-}
-
-function sendGraphProgressToSender(event: IpcMainInvokeEvent, value: unknown): void {
-  const progress = graphBuildProgressSchema.safeParse(value);
-  if (!progress.success || event.sender.isDestroyed()) {
-    return;
-  }
-  try {
-    event.sender.send(IPC_EVENTS.graphsProgress, progress.data);
-  } catch {
-    // Closing the renderer must not interrupt analysis or graph construction.
   }
 }
 

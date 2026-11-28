@@ -1,16 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
-import {
-  buildProjectGraph,
-  GraphBuildCancelledError,
-  InMemoryGraphProvider,
-  type GraphBuildLease,
-} from '@repolens/core';
-import {
-  analysisResultSchema,
-  graphBuildProgressSchema,
-  type GraphBuildProgress,
-} from '@repolens/shared';
+import { InMemoryGraphProvider } from '@repolens/core';
+import { analysisResultSchema } from '@repolens/shared';
 import type { AnalysisProgress, AnalysisResult } from '@repolens/shared';
 import type { ProjectManagementService } from './project-management.service.js';
 import { safeErrorDetails } from './diagnostic-logging.js';
@@ -22,25 +12,25 @@ import {
   type WorkerAnalysisInput,
 } from './analysis-worker-session.js';
 
+const MAX_IN_MEMORY_ANALYSES = 50;
+
 interface ActiveAnalysis {
   readonly analysisId: string;
   readonly projectId: string;
   readonly scanId: string;
   readonly worker: AnalysisWorkerSession;
-  readonly graphCancellation: { aborted: boolean };
-  graphBuilding: boolean;
 }
 
 export type AnalysisWorkerFactory = () => AnalysisWorkerSession;
 export type AnalysisProgressSink = (progress: AnalysisProgress) => void;
-export type GraphProgressSink = (progress: GraphBuildProgress) => void;
 
-/** Coordinates one ephemeral analysis worker; no source or analysis result is persisted. */
+/** Coordinates worker analysis and retains only the latest validated result per project in memory. */
 export class AnalysisManagementService {
   private activeAnalysis: ActiveAnalysis | null = null;
   private startingAnalysis = false;
   private startingProjectId: string | null = null;
   private readonly removingProjectIds = new Set<string>();
+  private readonly latestResults = new Map<string, AnalysisResult>();
 
   constructor(
     private readonly projects: ProjectManagementService,
@@ -54,7 +44,6 @@ export class AnalysisManagementService {
     projectId: string,
     scanId: string,
     progressSink: AnalysisProgressSink,
-    graphProgressSink: GraphProgressSink = () => undefined,
   ): Promise<AnalysisResult> {
     if (
       this.startingAnalysis ||
@@ -70,8 +59,6 @@ export class AnalysisManagementService {
     this.startingProjectId = projectId;
 
     let worker: AnalysisWorkerSession | null = null;
-    let graphBuildLease: GraphBuildLease | null = null;
-    let graphPublished = false;
     const analysisId = randomUUID();
     try {
       const project = await this.projects.getById(projectId);
@@ -93,7 +80,8 @@ export class AnalysisManagementService {
         );
       }
 
-      graphBuildLease = this.graphProvider.beginBuild(projectId, analysisId);
+      this.latestResults.delete(projectId);
+      this.graphProvider.disposeProject(projectId);
 
       try {
         worker = this.createWorker();
@@ -110,8 +98,6 @@ export class AnalysisManagementService {
         projectId,
         scanId,
         worker,
-        graphCancellation: { aborted: false },
-        graphBuilding: false,
       };
       this.startingAnalysis = false;
       this.startingProjectId = null;
@@ -143,53 +129,11 @@ export class AnalysisManagementService {
         ) {
           throw new Error('The analysis worker returned results for a different operation.');
         }
-        if (result.status === 'completed' || result.status === 'partial') {
-          if (graphBuildLease === null) {
-            throw new Error('The graph lifecycle lease was not initialized.');
-          }
-          const active = this.activeAnalysis;
-          if (active === null || active.analysisId !== analysisId) {
-            throw new Error('The graph build is no longer associated with the active analysis.');
-          }
-          active.graphBuilding = true;
-          try {
-            const graph = await buildProjectGraph(result, {
-              signal: active.graphCancellation,
-              onProgress: graphProgressSink,
-              yieldToEventLoop: () => yieldToEventLoop(),
-            });
-            graphPublished = this.graphProvider.publish(graphBuildLease, graph);
-          } catch (error) {
-            if (!(error instanceof GraphBuildCancelledError)) {
-              throw error;
-            }
-            this.graphProvider.fail(graphBuildLease);
-            const cancelledProgress = graphBuildProgressSchema.parse({
-              analysisId,
-              scanId,
-              projectId,
-              phase: 'cancelled',
-              processed: 0,
-              total: 0,
-              percentage: 0,
-            });
-            try {
-              graphProgressSink(cancelledProgress);
-            } catch {
-              // A progress observer cannot interfere with graph cleanup.
-            }
-            return result;
-          } finally {
-            active.graphBuilding = false;
-          }
-        }
+        this.retainLatestResult(projectId, result);
         return result;
       } catch (error) {
-        if (graphBuildLease !== null) {
-          this.graphProvider.fail(graphBuildLease);
-        }
         console.error(
-          'RepoLens could not finalize static analysis and its graph.',
+          'RepoLens could not finalize static analysis.',
           safeErrorDetails(error, [project.rootPath]),
         );
         throw new ServiceError(
@@ -198,9 +142,6 @@ export class AnalysisManagementService {
         );
       }
     } finally {
-      if (graphBuildLease !== null && !graphPublished) {
-        this.graphProvider.fail(graphBuildLease);
-      }
       if (this.activeAnalysis?.analysisId === analysisId) {
         this.activeAnalysis = null;
       }
@@ -212,19 +153,41 @@ export class AnalysisManagementService {
     }
   }
 
+  getLatestResult(projectId: string): AnalysisResult | null {
+    const result = this.latestResults.get(projectId);
+    if (result === undefined) {
+      return null;
+    }
+    const parsed = analysisResultSchema.safeParse(result);
+    if (!parsed.success || parsed.data.projectId !== projectId) {
+      this.latestResults.delete(projectId);
+      return null;
+    }
+    this.latestResults.delete(projectId);
+    this.latestResults.set(projectId, parsed.data);
+    return parsed.data;
+  }
+
+  private retainLatestResult(projectId: string, result: AnalysisResult): void {
+    this.latestResults.delete(projectId);
+    this.latestResults.set(projectId, result);
+    while (this.latestResults.size > MAX_IN_MEMORY_ANALYSES) {
+      const oldestProjectId = this.latestResults.keys().next().value;
+      if (oldestProjectId === undefined) {
+        break;
+      }
+      this.latestResults.delete(oldestProjectId);
+    }
+  }
+
+  getCurrentResult(projectId: string, scanId: string, analysisId: string): AnalysisResult | null {
+    const result = this.getLatestResult(projectId);
+    return result?.scanId === scanId && result.analysisId === analysisId ? result : null;
+  }
+
   async cancel(analysisId: string): Promise<{ readonly cancelled: true }> {
     const active = this.activeAnalysis;
-    if (active === null || active.analysisId !== analysisId) {
-      throw new ServiceError('ANALYSIS_NOT_RUNNING', 'That static analysis is no longer running.');
-    }
-    if (active.graphBuilding) {
-      if (active.graphCancellation.aborted) {
-        throw new ServiceError('ANALYSIS_NOT_RUNNING', 'That graph build is already cancelling.');
-      }
-      active.graphCancellation.aborted = true;
-      return { cancelled: true };
-    }
-    if (active.worker.finished) {
+    if (active === null || active.analysisId !== analysisId || active.worker.finished) {
       throw new ServiceError('ANALYSIS_NOT_RUNNING', 'That static analysis is no longer running.');
     }
     active.worker.cancel();
@@ -246,11 +209,13 @@ export class AnalysisManagementService {
     this.removingProjectIds.add(projectId);
     try {
       const result = await removeRegistration();
+      this.latestResults.delete(projectId);
       this.graphProvider.disposeProject(projectId);
       return result;
     } catch (error) {
       try {
         if ((await this.projects.getById(projectId)) === null) {
+          this.latestResults.delete(projectId);
           this.graphProvider.disposeProject(projectId);
         }
       } catch {

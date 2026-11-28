@@ -161,7 +161,12 @@ void app
       undefined,
       graphProvider,
     );
-    const graphService = new GraphManagementService(projectService, graphProvider);
+    const graphService = new GraphManagementService(
+      projectService,
+      graphProvider,
+      scanService,
+      analysisService,
+    );
 
     app.on('before-quit', () => graphProvider.dispose());
     installContentSecurityPolicy(rendererTarget.developmentUrl !== null);

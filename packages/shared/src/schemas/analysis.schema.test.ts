@@ -24,6 +24,7 @@ const result = {
   filesSelected: 1,
   filesAnalyzed: 1,
   filesSkipped: 0,
+  analyzedFiles: ['src/index.ts'],
   symbols: [
     {
       id: 'src/index.ts#module',
@@ -58,6 +59,25 @@ describe('static-analysis schemas', () => {
         kind: 'function',
         location: { ...location, startLine: 0 },
         exported: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('ties analysis counts and every parser record to unique successfully analyzed files', () => {
+    expect(analysisResultSchema.safeParse({ ...result, analyzedFiles: [] }).success).toBe(false);
+    expect(
+      analysisResultSchema.safeParse({ ...result, analyzedFiles: ['src/index.ts', 'src/index.ts'] })
+        .success,
+    ).toBe(false);
+    expect(
+      analysisResultSchema.safeParse({
+        ...result,
+        symbols: [
+          {
+            ...result.symbols[0],
+            location: { ...location, filePath: 'src/other.ts' },
+          },
+        ],
       }).success,
     ).toBe(false);
   });
