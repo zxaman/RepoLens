@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — Phase 3 scanner (target v0.3.0)
+
+### Added
+
+- Reusable core scanner with iterative directory-tree discovery; canonical-root and symlink-boundary checks; file classification; extension-derived language statistics; evidence-based technology detection; metadata; SHA-256 hashing; cancellation; progress; and safe warnings/errors.
+- Root `.gitignore` and `.repolensignore` support for a documented, tested pattern subset with explicit precedence. Mandatory `.git`/`node_modules` exclusions and default sensitive-path protections cannot be overridden by project negation.
+- Scan schemas for strict config, result/file metadata, progress, warnings/errors, and per-project history summaries. Sensitive inclusion requires an explicit per-scan opt-in and risk acknowledgement.
+- Electron-owned Node filesystem adapter and worker-thread scan execution, validated start/cancel/history/latest IPC, a narrow preload progress subscription, and bounded versioned JSON scan-history persistence.
+- Project-details scan controls, progress/cancellation, language/technology evidence, current-session file inventory/hash results, and saved summary history.
+- Synthetic scanner fixtures, core filesystem/scanner tests, Node adapter/IPC/preload/history service tests, and Angular project-details tests.
+- [Scanner documentation](docs/SCANNING.md), architecture/security/IPC updates, and Phase 3 status tracking.
+
+### Security and limitations
+
+- Scanning does not execute imported code or commands, install dependencies, modify or upload the repository, or call a backend/AI service.
+- Root ignore support is a subset, not full Git compatibility. Sensitive-name filtering is conservative but not a detector for secrets embedded in ordinary source files.
+- Full file inventories and hashes are returned for the current scan session; persisted history contains at most 50 summaries per project and does not retain per-file details or contents.
+- Electron GUI/native-picker manual launch remains unverified in the sandbox because the Electron binary and graphical display are unavailable.
+
 ## [0.2.0] - 2026-11-27
 
 ### Added
@@ -9,15 +28,15 @@
 - A version-1 JSON project registry and a separate JSON settings file in Electron `userData`, backed by repository interfaces and atomic file replacement. Invalid persisted JSON is preserved as a quarantined file before safe defaults are used.
 - Project registration, listing, active-project selection, metadata refresh, unavailable-folder preservation, and registration-only removal.
 - Guarded project/settings IPC handlers and narrow preload methods with sender, payload, channel, and response validation.
-- Angular welcome, project list, project details, and settings screens. The details view reports “Not scanned yet”; no analysis results are fabricated.
+- Angular welcome, project list, project details, and settings screens. At that milestone the details view reported “Not scanned yet”; no analysis results were fabricated.
 - Persistent theme, startup project preference, removal-confirmation, and recent-project-limit settings.
 - Temporary-directory tests for project path validation, JSON persistence, duplicate/concurrent registration, import lifecycle, unavailable folders, settings, IPC/preload validation, and theme application.
-- Renderer development startup now works from the repository root with the original `ng serve` command (or `npm start`), resolving shared contracts directly from workspace source instead of relying on generated package declarations.
+- Renderer development startup from the repository root using `ng serve` (or `npm start`), with shared contracts resolved directly from workspace source.
 
 ### Security and scope
 
-- Project folders are not recursively scanned, their files are not read, and their scripts or dependencies are not executed or installed. Import and removal do not modify or delete repository contents.
-- The registry repository interface is suitable for a future SQLite adapter; SQLite persistence and JSON-to-SQLite migration are not part of this release.
+- The v0.2.0 import flow did not recursively scan folders, read source files, initialize Git, execute scripts, install dependencies, modify/delete repository files, upload source, or call cloud/AI services.
+- The registry repository interface is suitable for a future SQLite adapter; SQLite persistence and JSON-to-SQLite migration were not part of that milestone.
 
 ### Verification notes
 

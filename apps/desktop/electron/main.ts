@@ -4,6 +4,8 @@ import { registerIpcHandlers } from './ipc/register-ipc.js';
 import { AppSettingsService } from './services/app-settings.service.js';
 import { JsonProjectRepository } from './services/json-project-repository.js';
 import { JsonSettingsRepository } from './services/json-settings-repository.js';
+import { JsonScanHistoryRepository } from './services/json-scan-history-repository.js';
+import { ScanManagementService } from './services/scan-management.service.js';
 import { ProjectManagementService } from './services/project-management.service.js';
 import { buildContentSecurityPolicy } from './security/content-security-policy.js';
 import {
@@ -142,6 +144,10 @@ void app
     const projectService = new ProjectManagementService(projectRepository, settingsService, {
       pickDirectory: pickProjectDirectory,
     });
+    const scanHistoryRepository = new JsonScanHistoryRepository(
+      join(userDataDirectory, 'scan-history.json'),
+    );
+    const scanService = new ScanManagementService(projectService, scanHistoryRepository);
 
     installContentSecurityPolicy(rendererTarget.developmentUrl !== null);
     registerIpcHandlers(
@@ -156,6 +162,7 @@ void app
       },
       projectService,
       settingsService,
+      scanService,
     );
 
     await createMainWindow(rendererTarget);

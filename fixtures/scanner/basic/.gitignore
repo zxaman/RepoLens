@@ -1,0 +1,9 @@
+# Root-level ignore subset used by scanner fixtures
+dist/
+ignored-by-git.txt
+override.tmp
+scratch/
+!scratch/
+scratch/*
+!scratch/keep.ts
+!node_modules/**

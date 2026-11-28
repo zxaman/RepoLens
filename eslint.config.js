@@ -11,6 +11,7 @@ export default tseslint.config(
       '**/out-tsc/**',
       '**/coverage/**',
       '**/.angular/**',
+      'fixtures/**',
     ],
   },
   eslint.configs.recommended,

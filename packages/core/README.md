@@ -1,5 +1,12 @@
 # `@repolens/core`
 
-This package owns the future reusable analysis engine. In v0.1.0 it exposes only the minimal analysis context, analyzer, and pipeline contracts. It deliberately does not scan files, parse ASTs, construct graphs, or depend on Angular, Electron, the CLI, or Node-specific application services.
+`@repolens/core` contains RepoLens's reusable local scanning engine. It depends only on `@repolens/shared` and uses a narrow `ScanFileSystem` adapter supplied by the host; it has no Angular, Electron, or direct Node.js dependency.
 
-The only package dependency is `@repolens/shared` for stable project contracts. Each analysis capability will be implemented and tested in its later milestone.
+The Phase 3 scanner provides:
+
+- Iterative directory-tree discovery with canonical-root boundary checks, in-root de-duplication, symlink-cycle handling, and cancellation.
+- Conservative built-in/user exclusions plus documented root `.gitignore` / `.repolensignore` subset support. Mandatory safety exclusions and sensitive-file defaults cannot be negated.
+- File classification, extension-derived language statistics, `package.json` evidence reads capped at 1 MiB per file, filename-based configuration evidence, metadata, streaming SHA-256 orchestration, warnings, and schema-validated results/progress.
+- Safe-by-default sensitive-path exclusion; `ScanConfig` requires an explicit risk acknowledgement to opt in.
+
+The core does not execute project code or commands, install dependencies, change imported repositories, upload contents, parse ASTs/symbols, build dependency graphs, call AI, or persist results. See [Scanner documentation](../../docs/SCANNING.md) and the fixture-based tests in `src/scanner/scanner.service.test.ts`.

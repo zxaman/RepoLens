@@ -4,17 +4,29 @@ import {
   projectImportCommitResultSchema,
   projectImportResultSchema,
   projectSchema,
-  scanSummarySchema,
+  scanHistoryItemSchema,
+  scanProgressSchema,
+  scanResultSchema,
   type AppSettings,
   type RepoLensAPI,
   type Result,
-  type ScanSummary,
+  type ScanConfig,
+  type ScanProgress,
 } from '@repolens/shared';
 import { z } from 'zod';
-import { IPC_CHANNELS, type IpcChannel } from '../security/ipc-channels.js';
+import {
+  IPC_CHANNELS,
+  IPC_EVENTS,
+  type IpcChannel,
+  type IpcEventChannel,
+} from '../security/ipc-channels.js';
 
 export interface IpcInvoker {
   invoke(channel: IpcChannel, payload?: object): Promise<unknown>;
+}
+
+export interface IpcEventSource {
+  subscribe(channel: IpcEventChannel, listener: (payload: unknown) => void): () => void;
 }
 
 const versionSchema = z.string().min(1);
@@ -22,7 +34,9 @@ const platformSchema = z.string().min(1);
 const projectListSchema = z.array(projectSchema).readonly();
 const projectNullableSchema = projectSchema.nullable();
 const projectRemovalSchema = z.object({ removed: z.literal(true) }).strict();
-const cancelledImportSchema = z.object({ cancelled: z.literal(true) }).strict();
+const cancelledOperationSchema = z.object({ cancelled: z.literal(true) }).strict();
+const scanHistoryItemListSchema = z.array(scanHistoryItemSchema).readonly();
+const scanHistoryItemNullableSchema = scanHistoryItemSchema.nullable();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -68,7 +82,7 @@ function invokeResult<T>(
   return response.then((value) => parseResult(value, dataSchema));
 }
 
-export function createRepoLensAPI(invoker: IpcInvoker): RepoLensAPI {
+export function createRepoLensAPI(invoker: IpcInvoker, eventSource?: IpcEventSource): RepoLensAPI {
   return Object.freeze({
     app: Object.freeze({
       getVersion: () => invokeValidated(invoker, IPC_CHANNELS.appGetVersion, versionSchema),
@@ -82,7 +96,7 @@ export function createRepoLensAPI(invoker: IpcInvoker): RepoLensAPI {
           selectionId,
         }),
       cancelImport: (selectionId: string) =>
-        invokeResult(invoker, IPC_CHANNELS.projectsCancelImport, cancelledImportSchema, {
+        invokeResult(invoker, IPC_CHANNELS.projectsCancelImport, cancelledOperationSchema, {
           selectionId,
         }),
       list: () => invokeResult(invoker, IPC_CHANNELS.projectsList, projectListSchema),
@@ -97,8 +111,40 @@ export function createRepoLensAPI(invoker: IpcInvoker): RepoLensAPI {
         invokeResult(invoker, IPC_CHANNELS.projectsRefresh, projectSchema, { id }),
     }),
     scans: Object.freeze({
-      getStatus: (): Promise<Result<ScanSummary | null>> =>
-        invokeResult(invoker, IPC_CHANNELS.scansGetStatus, scanSummarySchema.nullable()),
+      start: (projectId: string, config?: ScanConfig) =>
+        invokeResult(invoker, IPC_CHANNELS.scansStart, scanResultSchema, {
+          projectId,
+          ...(config === undefined ? {} : { config }),
+        }),
+      cancel: (scanId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.scansCancel, cancelledOperationSchema, { scanId }),
+      onProgress: (callback: (progress: ScanProgress) => void) => {
+        if (typeof callback !== 'function') {
+          throw new TypeError('A scan progress callback must be a function.');
+        }
+        if (eventSource === undefined) {
+          return () => undefined;
+        }
+        return eventSource.subscribe(IPC_EVENTS.scansProgress, (value) => {
+          const progress = scanProgressSchema.safeParse(value);
+          if (!progress.success) {
+            return;
+          }
+          try {
+            callback(progress.data);
+          } catch {
+            // A renderer listener must not interfere with the scanning worker.
+          }
+        });
+      },
+      getHistory: (projectId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.scansGetHistory, scanHistoryItemListSchema, {
+          projectId,
+        }),
+      getLatest: (projectId: string) =>
+        invokeResult(invoker, IPC_CHANNELS.scansGetLatest, scanHistoryItemNullableSchema, {
+          projectId,
+        }),
     }),
     settings: Object.freeze({
       get: () => invokeResult(invoker, IPC_CHANNELS.settingsGet, appSettingsSchema),

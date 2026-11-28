@@ -1,0 +1,8 @@
+# RepoLens rules are applied after root .gitignore rules
+vendor/
+*.local
+!src/keep.local
+!ignored-by-git.txt
+!override.tmp
+!secrets/secret.txt
+!credentials.json

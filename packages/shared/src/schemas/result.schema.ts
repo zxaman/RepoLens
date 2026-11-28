@@ -13,6 +13,8 @@ export const appErrorCodeSchema = z.enum([
   'REGISTRY_CORRUPT',
   'STORAGE_FAILURE',
   'SELECTION_EXPIRED',
+  'SCAN_ALREADY_RUNNING',
+  'SCAN_NOT_RUNNING',
 ]);
 
 export const appErrorSchema = z

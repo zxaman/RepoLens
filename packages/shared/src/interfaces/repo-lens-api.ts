@@ -4,8 +4,13 @@ import type {
   ProjectImportResult,
 } from '../schemas/project-import.schema.js';
 import type { Project } from '../schemas/project.schema.js';
+import type {
+  ScanConfig,
+  ScanHistoryItem,
+  ScanProgress,
+  ScanResult,
+} from '../schemas/scan.schema.js';
 import type { Result } from '../schemas/result.schema.js';
-import type { ScanSummary } from '../schemas/scan.schema.js';
 
 export interface RepoLensAPI {
   readonly app: {
@@ -24,7 +29,11 @@ export interface RepoLensAPI {
     refresh(id: string): Promise<Result<Project>>;
   };
   readonly scans: {
-    getStatus(): Promise<Result<ScanSummary | null>>;
+    start(projectId: string, config?: ScanConfig): Promise<Result<ScanResult>>;
+    cancel(scanId: string): Promise<Result<{ readonly cancelled: true }>>;
+    onProgress(callback: (progress: ScanProgress) => void): () => void;
+    getHistory(projectId: string): Promise<Result<readonly ScanHistoryItem[]>>;
+    getLatest(projectId: string): Promise<Result<ScanHistoryItem | null>>;
   };
   readonly settings: {
     get(): Promise<Result<AppSettings>>;
